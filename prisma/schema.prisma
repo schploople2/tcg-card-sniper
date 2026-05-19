@@ -1,0 +1,135 @@
+// Prisma schema — TCG Card Sniper
+// Run `pnpm db:generate` after editing this file
+// Run `pnpm db:migrate` to apply changes to your local DB
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum DealTier {
+  HOT   // > 25% below market (after shipping)
+  GOOD  // 10–25% below market
+  FAIR  // 0–10% below market
+  OVER  // above market price
+}
+
+enum ListingType {
+  AUCTION
+  FIXED_PRICE
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// User
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String        @id @default(cuid())
+  email        String        @unique
+  passwordHash String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  watchedCards WatchedCard[]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WatchedCard — cards the user wants to track
+// ─────────────────────────────────────────────────────────────────────────────
+
+model WatchedCard {
+  id          String   @id @default(cuid())
+  userId      String
+  cardName    String
+  setName     String
+  cardNumber  String?
+  condition   String   @default("Raw NM")
+  /// Maximum total cost the user wants to pay (listing price + shipping).
+  /// Alerts fire when any listing's totalCost falls at or below this value.
+  targetPrice Decimal  @db.Decimal(10, 2)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listings   Listing[]
+  priceCache PriceCache?
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Listing — a single eBay listing fetched for a watched card
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Listing {
+  id         String @id @default(cuid())
+  cardId     String
+  /// eBay item ID — unique per listing, used to deduplicate on upsert
+  ebayItemId String @unique
+
+  title    String
+  imageUrl String?
+  ebayUrl  String  // affiliate URL from itemAffiliateWebUrl
+
+  /// Base listing price (before shipping)
+  listingPrice Decimal @db.Decimal(10, 2)
+  /// Shipping cost from eBay shippingOptions[0].shippingCost.value.
+  /// NULL means free shipping — the deal engine treats it as $0.
+  shippingCost Decimal? @db.Decimal(10, 2)
+  /// listingPrice + (shippingCost ?? 0) — stored for fast sorting/filtering
+  totalCost Decimal @db.Decimal(10, 2)
+
+  /// PriceCharting market price at fetch time (used for deal score calc)
+  marketPrice Decimal @db.Decimal(10, 2)
+  /// ((marketPrice - totalCost) / marketPrice) * 100, rounded to nearest int
+  dealScore Int
+  dealTier  DealTier
+
+  listingType    ListingType
+  condition      String?
+  seller         String?
+  sellerFeedback Float?
+
+  /// Only set for AUCTION listings
+  bids    Int?
+  endTime DateTime?
+
+  fetchedAt DateTime @default(now())
+  /// Listings expire after 30 min — the cron job re-fetches after this
+  expiresAt DateTime
+
+  card WatchedCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId])
+  @@index([dealTier, dealScore])
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PriceCache — PriceCharting data cached per card for 6 hours
+// ─────────────────────────────────────────────────────────────────────────────
+
+model PriceCache {
+  id     String @id @default(cuid())
+  cardId String @unique
+
+  /// Prices in dollars (PriceCharting returns cents — divide by 100 before storing)
+  loosePrice  Decimal? @db.Decimal(10, 2)
+  cibPrice    Decimal? @db.Decimal(10, 2)
+  newPrice    Decimal? @db.Decimal(10, 2)
+  gradedPrice Decimal? @db.Decimal(10, 2)
+
+  fetchedAt DateTime @default(now())
+  /// Cache expires after 6 hours
+  expiresAt DateTime
+
+  card WatchedCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+}

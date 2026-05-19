@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 47% 6%;
+    --foreground: 213 31% 91%;
+  }
+
+  * {
+    @apply border-navy-700;
+  }
+
+  body {
+    @apply bg-navy-950 text-slate-200;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Smooth scrollbar for dark theme */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: #0a0f1e; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: #475569; }
+}
+
+@layer utilities {
+  .text-poke-yellow { color: #F5C518; }
+  .text-poke-red    { color: #E63946; }
+  .bg-poke-yellow   { background-color: #F5C518; }
+  .bg-poke-red      { background-color: #E63946; }
+
+  /* Tabular numbers for countdowns and prices */
+  .tabular { font-variant-numeric: tabular-nums; }
+}
