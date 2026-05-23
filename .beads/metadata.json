@@ -2,6 +2,6 @@
   "database": "dolt",
   "backend": "dolt",
   "dolt_mode": "embedded",
-  "dolt_database": "tcg_card_sniper",
-  "project_id": "72f7bd56-c529-4aba-a245-4f89779e8860"
+  "dolt_database": "tcg_card_sniper_dev",
+  "project_id": "bbf90e8f-653c-4a95-aef9-06e55c3ef740"
 }
