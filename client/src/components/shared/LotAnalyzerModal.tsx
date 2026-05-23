@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Plus, Minus, Trash2, Search, Image as ImageIcon, Sparkles, Check } from "lucide-react";
+import { X, Plus, Minus, Trash2, Search, Image as ImageIcon, Sparkles, Check, MoreHorizontal } from "lucide-react";
+import { PrintingPicker } from "./PrintingPicker";
 import {
   useLotAnnotation,
   useLotImages,
@@ -48,6 +49,17 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
   const [acceptedSuggestionKeys, setAcceptedSuggestionKeys] = useState<Set<string>>(
     new Set()
   );
+  // suggestion.name -> the cardId currently contributed by this suggestion.
+  // Lets "Change printing" know which addedCard to remove before adding the
+  // new pick — otherwise we'd leave the old printing behind and double-count.
+  const [pickedCardIdByName, setPickedCardIdByName] = useState<
+    Record<string, string>
+  >({});
+  // Which suggestion (by name) currently has the printing picker popover open.
+  const [openPickerName, setOpenPickerName] = useState<string | null>(null);
+  // Anchor for scroll-into-view when the picker's empty-state "Search the
+  // full catalog" link pre-fills the query.
+  const catalogSearchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Local editable state — seeded once from server, edited freely, saved on submit.
   const [addedCards, setAddedCards] = useState<AddedLotCard[]>([]);
@@ -80,6 +92,8 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
     // per-listing and would mislead if leaked across analyses.
     setSuggestions(null);
     setAcceptedSuggestionKeys(new Set());
+    setPickedCardIdByName({});
+    setOpenPickerName(null);
   }, [lot?.ebayItemId, lot]);
 
   // Local index of card metadata for the in-modal cards-list rendering.
@@ -124,20 +138,53 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
    */
   function handleAcceptSuggestion(s: LotSuggestion) {
     if (s.candidates.length === 0) return;
-    const cardId = s.candidates[0].cardId;
+    handlePickPrinting(s, s.candidates[0].cardId);
+  }
+
+  /**
+   * Add (or change) a user-picked printing for an AI suggestion. When the
+   * user is changing the printing for an already-accepted suggestion, the
+   * old cardId is removed from `addedCards` first so we don't leave two
+   * printings of the "same" card stacked in the additions list.
+   */
+  function handlePickPrinting(s: LotSuggestion, cardId: string) {
+    const previousCardId = pickedCardIdByName[s.name];
     setAddedCards((prev) => {
-      const existing = prev.find((c) => c.cardId === cardId);
+      // Remove the old printing if this is a "change printing" action.
+      const filtered =
+        previousCardId && previousCardId !== cardId
+          ? prev.filter((c) => c.cardId !== previousCardId)
+          : prev;
+      const existing = filtered.find((c) => c.cardId === cardId);
       if (existing) {
-        return prev.map((c) =>
+        // Same cardId already in the list (e.g. user added it manually
+        // before picking it from the AI): bump its quantity.
+        return filtered.map((c) =>
           c.cardId === cardId ? { ...c, quantity: c.quantity + s.quantity } : c
         );
       }
-      return [
-        ...prev,
-        { cardId, quantity: s.quantity, note: null },
-      ];
+      return [...filtered, { cardId, quantity: s.quantity, note: null }];
     });
     setAcceptedSuggestionKeys((prev) => new Set(prev).add(s.name));
+    setPickedCardIdByName((prev) => ({ ...prev, [s.name]: cardId }));
+  }
+
+  /**
+   * Pre-fill the modal's catalog search with a suggestion name (used by the
+   * PrintingPicker's empty-state "Search the full catalog" link) and scroll
+   * the input into view so the user lands on the next step.
+   */
+  function handleSearchFromSuggestion(name: string) {
+    setCatalogQuery(name);
+    setOpenPickerName(null);
+    // Defer the scroll so the input has time to render any pending state.
+    requestAnimationFrame(() => {
+      catalogSearchInputRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+      catalogSearchInputRef.current?.focus();
+    });
   }
 
   function handleAcceptAllHighConfidence() {
@@ -320,7 +367,14 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
                         key={`${s.name}-${s.sourceImagePosition ?? "?"}`}
                         suggestion={s}
                         accepted={acceptedSuggestionKeys.has(s.name)}
+                        currentCardId={pickedCardIdByName[s.name]}
+                        pickerOpen={openPickerName === s.name}
                         onAccept={() => handleAcceptSuggestion(s)}
+                        onPickerOpenChange={(open) =>
+                          setOpenPickerName(open ? s.name : null)
+                        }
+                        onPick={(cardId) => handlePickPrinting(s, cardId)}
+                        onSearch={handleSearchFromSuggestion}
                       />
                     ))}
                   </div>
@@ -385,6 +439,7 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
                   <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
                   <Input
                     autoFocus
+                    ref={catalogSearchInputRef}
                     value={catalogQuery}
                     onChange={(e) => setCatalogQuery(e.target.value)}
                     placeholder='Try "Charizard", "Mew ex", or a set name'
@@ -517,18 +572,41 @@ function AddedRow({ entry, catalogIndex, onInc, onDec, onRemove }: AddedRowProps
 interface SuggestionChipProps {
   suggestion: LotSuggestion;
   accepted: boolean;
+  /** The cardId currently picked for this suggestion (if any), so the picker
+   *  can highlight it in the "Change printing" flow. */
+  currentCardId?: string;
+  /** Controlled open state for this chip's printing picker. */
+  pickerOpen: boolean;
+  onPickerOpenChange: (open: boolean) => void;
   onAccept: () => void;
+  onPick: (cardId: string) => void;
+  onSearch: (name: string) => void;
 }
 
 /**
  * One AI-suggested card. Shows name + quantity + a confidence indicator
- * (• low / •• medium / ••• high). Clicking the + button pushes the first
- * candidate printing into Your additions; chip flips to a check on success.
+ * (• low / •• medium / ••• high). The chip body is the fast-accept path —
+ * clicking it pushes the first candidate printing into Your additions, so a
+ * confident user can sweep through chips in one click each.
+ *
+ * The right-edge ⋯ button opens a popover (PrintingPicker) listing every
+ * candidate printing the AI considered, with an AI badge on the first one
+ * so the user sees what they'd be overriding. Already-accepted chips keep
+ * the ⋯ active for the "Change printing" flow.
  *
  * Suggestions with zero catalog candidates (model hallucinated a name we
  * don't recognise) are rendered greyed-out and non-actionable.
  */
-function SuggestionChip({ suggestion, accepted, onAccept }: SuggestionChipProps) {
+function SuggestionChip({
+  suggestion,
+  accepted,
+  currentCardId,
+  pickerOpen,
+  onPickerOpenChange,
+  onAccept,
+  onPick,
+  onSearch,
+}: SuggestionChipProps) {
   const noMatch = suggestion.candidates.length === 0;
   const dots =
     suggestion.confidence >= 0.8 ? "•••" : suggestion.confidence >= 0.5 ? "••" : "•";
@@ -541,33 +619,63 @@ function SuggestionChip({ suggestion, accepted, onAccept }: SuggestionChipProps)
       ? `${suggestion.candidates.length} catalog match${suggestion.candidates.length === 1 ? "" : "es"}`
       : "No catalog match — can't add",
   ].filter(Boolean);
+  const baseClass = `inline-flex items-stretch rounded-lg border text-[11px] transition ${
+    accepted
+      ? "border-emerald-700/40 bg-emerald-900/20 text-emerald-300"
+      : noMatch
+      ? "border-slate-800 bg-slate-900/50 text-slate-600"
+      : "border-purple-700/40 bg-purple-900/20 text-purple-200"
+  }`;
   return (
-    <button
-      type="button"
-      onClick={onAccept}
-      disabled={noMatch || accepted}
-      title={tooltipLines.join("\n")}
-      className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[11px] transition ${
-        accepted
-          ? "border-emerald-700/40 bg-emerald-900/20 text-emerald-300"
-          : noMatch
-          ? "border-slate-800 bg-slate-900/50 text-slate-600 cursor-not-allowed"
-          : "border-purple-700/40 bg-purple-900/20 text-purple-200 hover:bg-purple-900/40"
-      }`}
-    >
-      {accepted ? (
-        <Check className="h-3 w-3" />
-      ) : (
-        <Plus className="h-3 w-3" />
-      )}
-      <span className="font-medium capitalize">
-        {suggestion.quantity > 1 && (
-          <span className="text-slate-400 mr-0.5">{suggestion.quantity}×</span>
+    <div className={baseClass} title={tooltipLines.join("\n")}>
+      <button
+        type="button"
+        onClick={onAccept}
+        disabled={noMatch || accepted}
+        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-l-lg transition ${
+          noMatch
+            ? "cursor-not-allowed"
+            : accepted
+            ? ""
+            : "hover:bg-purple-900/40"
+        }`}
+      >
+        {accepted ? (
+          <Check className="h-3 w-3" />
+        ) : (
+          <Plus className="h-3 w-3" />
         )}
-        {suggestion.name}
-      </span>
-      <span className="text-[9px] opacity-70 ml-0.5">{dots}</span>
-    </button>
+        <span className="font-medium capitalize">
+          {suggestion.quantity > 1 && (
+            <span className="text-slate-400 mr-0.5">{suggestion.quantity}×</span>
+          )}
+          {suggestion.name}
+        </span>
+        <span className="text-[9px] opacity-70 ml-0.5">{dots}</span>
+      </button>
+      <PrintingPicker
+        suggestion={suggestion}
+        currentCardId={currentCardId}
+        open={pickerOpen}
+        onOpenChange={onPickerOpenChange}
+        onPick={onPick}
+        onSearch={onSearch}
+      >
+        <button
+          type="button"
+          disabled={noMatch}
+          aria-label={accepted ? "Change printing" : "Pick a different printing"}
+          title={accepted ? "Change printing" : "Pick a different printing"}
+          className={`inline-flex items-center justify-center px-1.5 rounded-r-lg border-l border-current/20 transition ${
+            noMatch
+              ? "cursor-not-allowed opacity-40"
+              : "hover:bg-purple-900/40"
+          }`}
+        >
+          <MoreHorizontal className="h-3 w-3" />
+        </button>
+      </PrintingPicker>
+    </div>
   );
 }
 
