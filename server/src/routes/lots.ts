@@ -14,7 +14,12 @@ import {
   runLotVision,
   visionEnabled,
 } from "../services/lotVisionAi.js";
-import { LISTING_CACHE_TTL_MS } from "../config.js";
+import {
+  getTodayUsage,
+  isUserCapped,
+  listTodayUsage,
+} from "../services/ocrUsage.js";
+import { LISTING_CACHE_TTL_MS, config } from "../config.js";
 
 export const lotsRouter = Router();
 lotsRouter.use(requireAuth);
@@ -333,6 +338,33 @@ lotsRouter.put("/:ebayItemId/annotation", async (req, res, next) => {
 });
 
 /**
+ * GET /api/lots/_admin/ocr-usage
+ *
+ * Today's OCR spend per user, ordered by images processed. Gated behind
+ * router-level JWT auth only (anyone logged in can read). Add a real admin
+ * role check here when one exists.
+ *
+ * The `imagesProcessed` totals approximate spend at ~$0.003/image — a row
+ * showing 100 images = ~$0.30 today for that user.
+ */
+lotsRouter.get("/_admin/ocr-usage", async (_req, res, next) => {
+  try {
+    const rows = await listTodayUsage();
+    res.json({
+      day: new Date().toISOString().slice(0, 10),
+      cap: config.OCR_DAILY_IMAGES_PER_USER,
+      users: rows,
+      totals: {
+        imagesProcessed: rows.reduce((n, r) => n + r.imagesProcessed, 0),
+        callsMade: rows.reduce((n, r) => n + r.callsMade, 0),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/lots/:ebayItemId/ocr-suggestions  (Pc — vision-AI suggestions)
  *
  * Identify Pokémon cards visible in the listing's photos and return them
@@ -354,12 +386,27 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
         .json({ error: "Vision suggestions are not enabled on this server." });
     }
 
+    // Soft daily cap on fresh-API spend per user. Cache hits stay free, so a
+    // capped user can still replay any lot they've already analysed today —
+    // but the upstream check is conservative (we don't know yet which images
+    // are cached) and so a capped user is bounced before we even fetch.
+    const userId = req.user!.userId;
+    if (await isUserCapped(userId)) {
+      const usage = await getTodayUsage(userId);
+      return res.status(429).json({
+        error:
+          `Daily OCR limit reached (${usage.imagesProcessed}/${usage.cap} images). ` +
+          `Resets at UTC midnight.`,
+        usage,
+      });
+    }
+
     // Ensure the lot's images are cached locally (no-op if already fetched).
     // This is the same path the analyzer modal hits for the gallery, so it's
     // already warm in 99% of cases.
     await getLotImages(req.params.ebayItemId);
 
-    const result = await runLotVision(req.params.ebayItemId);
+    const result = await runLotVision(req.params.ebayItemId, { userId });
     const merged = dedupeSuggestions(result.suggestions);
 
     // Resolve each suggested name to catalog Card rows + price candidates
@@ -408,12 +455,16 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
     // view of the lot.
     const lotUpdate = await persistOcrToLot(req.params.ebayItemId, merged);
 
+    // Surface post-call usage so the modal can render "N of M images today".
+    const usage = await getTodayUsage(userId);
+
     res.json({
       ebayItemId: req.params.ebayItemId,
       suggestions,
       cacheStatus: result.cacheStatus,
       imagesProcessed: result.imagesProcessed,
       lotUpdate,
+      usage,
     });
   } catch (err) {
     next(err);

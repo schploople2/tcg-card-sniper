@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../config.js";
 import { prisma } from "../db.js";
+import { recordOcrCall } from "./ocrUsage.js";
 
 /**
  * Pc — Vision-AI card detection for lot listings.
@@ -207,7 +208,10 @@ async function visionOneImage(
  * the cap is raised). Returns early with an empty result when the
  * provider is disabled.
  */
-export async function runLotVision(ebayItemId: string): Promise<VisionRunResult> {
+export async function runLotVision(
+  ebayItemId: string,
+  opts: { userId?: string } = {}
+): Promise<VisionRunResult> {
   if (!visionEnabled()) {
     return { suggestions: [], cacheStatus: "cached", imagesProcessed: 0 };
   }
@@ -267,6 +271,18 @@ export async function runLotVision(ebayItemId: string): Promise<VisionRunResult>
   console.log(
     `[lotVisionAi] ebayItemId=${ebayItemId} ${capped.length} images → ${suggestions.length} suggestions (${processedCount} fresh / ${cachedCount} cached)`
   );
+
+  if (opts.userId) {
+    try {
+      await recordOcrCall(opts.userId, processedCount);
+    } catch (err) {
+      // Telemetry must never break the user-facing call. Log and continue.
+      console.error(
+        "[lotVisionAi] recordOcrCall failed:",
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
 
   return { suggestions, cacheStatus, imagesProcessed: processedCount };
 }

@@ -62,6 +62,14 @@ const envSchema = z.object({
   OCR_PROVIDER: z.enum(["claude", "none"]).default("none"),
   ANTHROPIC_API_KEY: z.string().optional(),
   OCR_MAX_IMAGES_PER_LOT: z.coerce.number().int().min(1).max(20).default(6),
+  /**
+   * Soft cap on per-user, per-day OCR image processing. Cache hits don't
+   * count — only fresh API-billed images. When a user crosses this number
+   * the /ocr-suggestions endpoint returns 429 until UTC midnight resets the
+   * ledger. At the default 100 images/day a user's worst-case Vision spend
+   * is ~$0.30/day.
+   */
+  OCR_DAILY_IMAGES_PER_USER: z.coerce.number().int().min(1).max(10000).default(100),
 });
 
 const parsed = envSchema.safeParse(process.env);

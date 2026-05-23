@@ -69,6 +69,7 @@ model User {
   watchedCards   WatchedCard[]
   alerts         Alert[]
   lotAnnotations LotAnnotation[]
+  ocrUsage       OcrUsage[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -371,6 +372,36 @@ model LotAnnotation {
 // Post-OCR usage (future): add `ocrText`, `detectedCardIds` columns and
 // run an enrichment job against `ocrText IS NULL` rows.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// OcrUsage — daily per-user spend ledger for Anthropic Vision calls.
+//
+// Vision is ~$0.003/image; left uncapped a single curious user could pull
+// thousands of images a day. One row per (userId, UTC day). `imagesProcessed`
+// counts only API-billed images (cache hits don't increment). `callsMade`
+// counts /ocr-suggestions invocations regardless of cache outcome — useful
+// for spotting hot-button users even when their spend is bounded.
+//
+// `OCR_DAILY_IMAGES_PER_USER` (env) is the soft cap; when exceeded the
+// route returns 429. The cap is checked against `imagesProcessed` only,
+// so re-running cached lots is always free.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model OcrUsage {
+  id              String   @id @default(cuid())
+  userId          String
+  /// UTC midnight of the day this row aggregates. Truncate at upsert time.
+  day             DateTime @db.Date
+  imagesProcessed Int      @default(0)
+  callsMade       Int      @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day])
+  @@index([day])
+}
 
 model LotImage {
   id         String   @id @default(cuid())
