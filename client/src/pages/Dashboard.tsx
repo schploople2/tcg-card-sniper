@@ -5,10 +5,14 @@ import { DealScoreBadge } from "@/components/shared/DealScoreBadge";
 import { CountdownTimer } from "@/components/shared/CountdownTimer";
 import { PriceBar } from "@/components/shared/PriceBar";
 import { CardDetailDrawer } from "@/components/shared/CardDetailDrawer";
+import { LotCard } from "@/components/shared/LotCard";
+import { LotAnalyzerModal } from "@/components/shared/LotAnalyzerModal";
+import { useLotSearch } from "@/hooks/useLots";
+import type { Lot } from "@/types";
 import { useAllListings, useRefreshAllListings } from "@/hooks/useListings";
 import { useCards } from "@/hooks/useCards";
 import { formatCurrency } from "@/lib/utils";
-import { DEAL_TIER_CONFIG } from "@/types";
+import { DEAL_TIER_CONFIG, getMarketForVariant } from "@/types";
 import type { DealTier, WatchedCard } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +25,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type SortKey = "dealScore" | "totalCost" | "endTime";
 
@@ -29,8 +34,9 @@ type DealRow = {
   id: string;
   cardName: string;
   setName: string;
-  condition: string;
-  targetPrice: number;
+  variant: string;
+  /** Variant-derived market price from TCGPlayer; null until first fetch lands */
+  targetPrice: number | null;
   title: string;
   imageUrl: string | null;
   ebayUrl: string;
@@ -41,6 +47,8 @@ type DealRow = {
   dealScore: number;
   dealTier: DealTier;
   listingType: "AUCTION" | "FIXED_PRICE";
+  /** Precise listing shape; null on legacy rows fetched before P5. */
+  kind: "AUCTION_ONLY" | "BIN" | "BIN_PLUS_AUCTION" | null;
   seller: string | null;
   sellerFeedback: number | null;
   bids: number | null;
@@ -132,6 +140,19 @@ export default function Dashboard() {
   const [tierFilter, setTierFilter] = useState<DealTier | "ALL">("ALL");
   const [typeFilter, setTypeFilter] = useState<"ALL" | "AUCTION" | "FIXED_PRICE">("ALL");
   const [sortKey, setSortKey] = useState<SortKey>("dealScore");
+  // P5: split listings into "all" vs "live auctions" tabs. The auctions tab
+  // is opinionated — it always sorts by end time ascending and only shows
+  // active auctions ending in the future.
+  // Pb: added a third tab for multi-card lots.
+  const [tab, setTab] = useState<"all" | "auctions" | "lots">("all");
+  const [lotQuery, setLotQuery] = useState("");
+  // Debounce-ish: only kick off the lot search when the user explicitly
+  // submits or pauses typing. The hook is enabled when there's >=2 chars
+  // AND the user has either typed something stable or hit search.
+  const [lotQuerySubmitted, setLotQuerySubmitted] = useState("");
+  const lotSearch = useLotSearch(lotQuerySubmitted, { enabled: tab === "lots" });
+  // Pb-next: analyzer modal — null = closed, otherwise the lot under analysis.
+  const [analyzingLot, setAnalyzingLot] = useState<Lot | null>(null);
 
   // Map the flat listing objects (which include card details) into DealRows
   const rows = useMemo<DealRow[]>(() => {
@@ -140,8 +161,8 @@ export default function Dashboard() {
       id: l.id,
       cardName: l.card.cardName,
       setName: l.card.setName,
-      condition: l.card.condition,
-      targetPrice: l.card.targetPrice,
+      variant: l.card.variant,
+      targetPrice: getMarketForVariant(l.card.priceCache, l.card.variant),
       title: l.title,
       imageUrl: l.imageUrl,
       ebayUrl: l.ebayUrl,
@@ -152,6 +173,7 @@ export default function Dashboard() {
       dealScore: Number(l.dealScore),
       dealTier: l.dealTier,
       listingType: l.listingType,
+      kind: l.kind,
       seller: l.seller,
       sellerFeedback: l.sellerFeedback != null ? Number(l.sellerFeedback) : null,
       bids: l.bids != null ? Number(l.bids) : null,
@@ -195,6 +217,42 @@ export default function Dashboard() {
     });
     return out;
   }, [rows, search, tierFilter, typeFilter, sortKey]);
+
+  // P5: live-auction view. We use the new `kind` column when present (eBay's
+  // precise shape) and fall back to `listingType === "AUCTION"` for any
+  // legacy row that pre-dates the migration. Auctions with no end time or
+  // an end time in the past are dropped — those are stale fetches awaiting
+  // the next refresh cron.
+  const auctionRows = useMemo(() => {
+    const now = Date.now();
+    const out = rows.filter((r) => {
+      const isAuction =
+        r.kind === "AUCTION_ONLY" ||
+        r.kind === "BIN_PLUS_AUCTION" ||
+        (r.kind == null && r.listingType === "AUCTION");
+      if (!isAuction) return false;
+      if (!r.endTime) return false;
+      return new Date(r.endTime).getTime() > now;
+    });
+    if (search) {
+      const q = search.toLowerCase();
+      return out
+        .filter(
+          (r) =>
+            r.cardName.toLowerCase().includes(q) ||
+            r.setName.toLowerCase().includes(q) ||
+            r.title.toLowerCase().includes(q)
+        )
+        .sort(
+          (a, b) =>
+            new Date(a.endTime!).getTime() - new Date(b.endTime!).getTime()
+        );
+    }
+    return [...out].sort(
+      (a, b) =>
+        new Date(a.endTime!).getTime() - new Date(b.endTime!).getTime()
+    );
+  }, [rows, search]);
 
   function handleRefreshAll() {
     if (!cards) return;
@@ -256,7 +314,37 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Filters */}
+      {/* P5: Tabs split single-card BIN/auction listings from a dedicated
+          live-auctions feed. The latter is sorted by end time so users can
+          scan "what's about to close that I might bid on". */}
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "all" | "auctions" | "lots")} className="mb-4">
+        <TabsList className="bg-slate-800/60 border border-slate-700">
+          <TabsTrigger value="all">All listings</TabsTrigger>
+          <TabsTrigger value="auctions">
+            Live auctions
+            {auctionRows.length > 0 && (
+              <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-orange-900/40 px-1.5 py-0.5 text-[10px] font-medium text-orange-300 border border-orange-700/40">
+                {auctionRows.length}
+              </span>
+            )}
+          </TabsTrigger>
+          <TabsTrigger value="lots">Lots</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {tab === "lots" ? (
+        <LotsTabBody
+          query={lotQuery}
+          setQuery={setLotQuery}
+          onSubmit={() => setLotQuerySubmitted(lotQuery.trim())}
+          response={lotSearch.data ?? null}
+          isLoading={lotSearch.isFetching}
+          onAnalyze={setAnalyzingLot}
+        />
+      ) : (
+      <>
+      {/* Filters — shared across both tabs except sort, which is fixed to
+          end-time on the auctions tab. */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[180px]">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
@@ -280,26 +368,40 @@ export default function Dashboard() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}>
-          <SelectTrigger className="w-36 bg-slate-900 border-slate-700 text-slate-300">
-            <SelectValue placeholder="All types" />
-          </SelectTrigger>
-          <SelectContent className="bg-slate-900 border-slate-700">
-            <SelectItem value="ALL">All types</SelectItem>
-            <SelectItem value="AUCTION">Auction</SelectItem>
-            <SelectItem value="FIXED_PRICE">Buy It Now</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
-          <SelectTrigger className="w-36 bg-slate-900 border-slate-700 text-slate-300">
-            <SelectValue placeholder="Sort by" />
-          </SelectTrigger>
-          <SelectContent className="bg-slate-900 border-slate-700">
-            <SelectItem value="dealScore">Best Deal</SelectItem>
-            <SelectItem value="totalCost">Lowest Price</SelectItem>
-            <SelectItem value="endTime">Ending Soon</SelectItem>
-          </SelectContent>
-        </Select>
+        {/* These two filters only apply on the "all" tab — the auctions tab
+            implies auction-only and forced-end-time sort. */}
+        {tab === "all" && (
+          <>
+            <Select
+              value={typeFilter}
+              onValueChange={(v) => setTypeFilter(v as typeof typeFilter)}
+            >
+              <SelectTrigger className="w-36 bg-slate-900 border-slate-700 text-slate-300">
+                <SelectValue placeholder="All types" />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-900 border-slate-700">
+                <SelectItem value="ALL">All types</SelectItem>
+                <SelectItem value="AUCTION">Auction</SelectItem>
+                <SelectItem value="FIXED_PRICE">Buy It Now</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+              <SelectTrigger className="w-36 bg-slate-900 border-slate-700 text-slate-300">
+                <SelectValue placeholder="Sort by" />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-900 border-slate-700">
+                <SelectItem value="dealScore">Best Deal</SelectItem>
+                <SelectItem value="totalCost">Lowest Price</SelectItem>
+                <SelectItem value="endTime">Ending Soon</SelectItem>
+              </SelectContent>
+            </Select>
+          </>
+        )}
+        {tab === "auctions" && (
+          <span className="text-xs text-slate-500">
+            Sorted by end time · only active auctions
+          </span>
+        )}
       </div>
 
       {/* Deals table */}
@@ -319,12 +421,18 @@ export default function Dashboard() {
             </tr>
           </thead>
           <tbody>
-            {isLoading ? (
-              [...Array(5)].map((_, i) => <SkeletonRow key={i} />)
-            ) : filtered.length === 0 ? (
-              <EmptyState hasCards={!!cards?.length} />
-            ) : (
-              filtered.map((row) => (
+            {(() => {
+              // Source list depends on which tab is active. Both render with
+              // the same row component below; the source array is the only
+              // thing that swaps.
+              const sourceRows = tab === "auctions" ? auctionRows : filtered;
+              if (isLoading) {
+                return [...Array(5)].map((_, i) => <SkeletonRow key={i} />);
+              }
+              if (sourceRows.length === 0) {
+                return <EmptyState hasCards={!!cards?.length} />;
+              }
+              return sourceRows.map((row) => (
                 <tr
                   key={row.id}
                   className="border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors"
@@ -369,7 +477,7 @@ export default function Dashboard() {
                   {/* Deal badge */}
                   <td className="px-4 py-3 whitespace-nowrap">
                     <DealScoreBadge tier={row.dealTier} score={row.dealScore} />
-                    {row.totalCost <= row.targetPrice && (
+                    {row.targetPrice != null && row.totalCost <= row.targetPrice && (
                       <Badge className="ml-1.5 text-[10px] bg-emerald-900/40 text-emerald-400 border border-emerald-700/40">
                         at target
                       </Badge>
@@ -431,22 +539,128 @@ export default function Dashboard() {
                     </a>
                   </td>
                 </tr>
-              ))
-            )}
+              ));
+            })()}
           </tbody>
         </table>
       </div>
 
-      {filtered.length > 0 && (
-        <p className="mt-2 text-xs text-slate-600 text-right">
-          {filtered.length} listing{filtered.length !== 1 ? "s" : ""} shown
-        </p>
+      {(() => {
+        // Footer count matches the rendered tab.
+        const n = tab === "auctions" ? auctionRows.length : filtered.length;
+        return n > 0 ? (
+          <p className="mt-2 text-xs text-slate-600 text-right">
+            {n} listing{n !== 1 ? "s" : ""} shown
+          </p>
+        ) : null;
+      })()}
+      </>
       )}
 
       <CardDetailDrawer
         card={drawerCard}
         onClose={() => setDrawerCard(null)}
       />
+
+      {/* Pb-next: Lot analyzer modal — portal-mounted at body. Open state
+          lives here so the modal survives tab switches. */}
+      <LotAnalyzerModal lot={analyzingLot} onClose={() => setAnalyzingLot(null)} />
     </PageShell>
+  );
+}
+
+// ─── Lots tab body ────────────────────────────────────────────────────────────
+
+interface LotsTabBodyProps {
+  query: string;
+  setQuery: (v: string) => void;
+  onSubmit: () => void;
+  response: import("@/types").LotsSearchResponse | null;
+  isLoading: boolean;
+  /** Called when a user clicks "Analyze" on a lot card. */
+  onAnalyze: (lot: Lot) => void;
+}
+
+/**
+ * Pb: Lots tab. Free-text search box → eBay → parsed lot cards.
+ * Pre-search, shows a helpful placeholder explaining what the tab does.
+ * Post-search, shows count + a vertical list of LotCard components.
+ */
+function LotsTabBody({ query, setQuery, onSubmit, response, isLoading, onAnalyze }: LotsTabBodyProps) {
+  const lots = response?.lots ?? [];
+  const hasSearched = response !== null;
+
+  return (
+    <div>
+      <form
+        className="mb-4 flex items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          onSubmit();
+        }}
+      >
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+          <Input
+            placeholder='Search lots — try "charizard lot" or "wotc binder"'
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            className="pl-8 bg-slate-900 border-slate-700 text-slate-200 placeholder:text-slate-500"
+          />
+        </div>
+        <Button
+          type="submit"
+          className="bg-[#F5C518] text-slate-900 hover:bg-[#f0ba00] font-semibold"
+          disabled={isLoading || query.trim().length < 2}
+        >
+          {isLoading ? "Searching…" : "Search"}
+        </Button>
+      </form>
+
+      {!hasSearched && !isLoading && (
+        <div className="rounded-xl border border-slate-800 bg-[#0f172a] p-8 text-center">
+          <p className="text-sm text-slate-400">
+            Search eBay lot listings and we'll parse the titles to identify which
+            cards are inside, then compare the listing price to the sum of
+            individual card market prices.
+          </p>
+          <p className="mt-2 text-xs text-slate-600">
+            Tip: lot titles often have ambiguous card names (which "Pikachu"?). We
+            show every candidate printing so you can refine the valuation.
+          </p>
+        </div>
+      )}
+
+      {isLoading && (
+        <div className="space-y-3">
+          {[...Array(3)].map((_, i) => (
+            <Skeleton key={i} className="h-40 w-full bg-slate-800 rounded-xl" />
+          ))}
+        </div>
+      )}
+
+      {hasSearched && !isLoading && lots.length === 0 && (
+        <div className="rounded-xl border border-slate-800 bg-[#0f172a] p-8 text-center">
+          <p className="text-sm text-slate-400">No lot-shaped listings found.</p>
+          <p className="mt-1 text-xs text-slate-600">
+            Try broader terms like "vintage pokemon lot" or "binder".
+          </p>
+        </div>
+      )}
+
+      {hasSearched && !isLoading && lots.length > 0 && (
+        <>
+          <p className="mb-3 text-xs text-slate-500">
+            {response!.lotShapedCount} lot-shaped of {response!.rawEbayCount} raw ·{" "}
+            {response!.withCardsCount} with priced cards
+          </p>
+          <div className="space-y-3">
+            {lots.map((lot) => (
+              <LotCard key={lot.id} lot={lot} onAnalyze={() => onAnalyze(lot)} />
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }

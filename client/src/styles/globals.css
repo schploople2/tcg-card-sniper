@@ -9,11 +9,12 @@
   }
 
   * {
-    @apply border-navy-700;
+    border-color: #334155;
   }
 
   body {
-    @apply bg-navy-950 text-slate-200;
+    background-color: #0a0f1e;
+    color: #e2e8f0;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
 

@@ -1,26 +1,43 @@
 import { Router } from "express";
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "../db.js";
 import { requireAuth } from "../middleware/auth.js";
 import { AppError } from "../middleware/errorHandler.js";
+import { fetchCardById } from "../services/pokemontcg.js";
+import { PRICE_CACHE_TTL_MS } from "../config.js";
 
 export const cardsRouter = Router();
-
-// All watchlist routes require authentication
 cardsRouter.use(requireAuth);
 
 // ─── Validation schemas ───────────────────────────────────────────────────────
 
 const createCardSchema = z.object({
-  cardName: z.string().min(1).max(200),
-  setName: z.string().min(1).max(200),
+  pokemonTcgId: z.string().min(1, "pokemonTcgId is required"),
+  /** Variant key from TCGPlayer prices (e.g. "normal", "holofoil") */
+  variant: z.string().min(1),
+  /** Filled by the client from the catalog selection (server re-validates by fetching the card) */
+  cardName: z.string().min(1).max(200).optional(),
+  setName: z.string().min(1).max(200).optional(),
   cardNumber: z.string().max(20).optional(),
-  condition: z.string().default("Raw NM"),
-  /** Maximum total cost the user is willing to pay (listing + shipping) */
-  targetPrice: z.number().positive("Target price must be positive"),
 });
 
-const updateCardSchema = createCardSchema.partial();
+const updateCardSchema = z.object({
+  variant: z.string().min(1).optional(),
+  /**
+   * Target price in USD. Set to null/0 to clear. Accepts numeric strings
+   * from the inline editor without forcing the client to parse first.
+   * Stored as Decimal(10,2); zero is normalised to null so "0" means "no target."
+   */
+  targetPrice: z
+    .union([z.number().nonnegative(), z.string().regex(/^\d+(\.\d{1,2})?$/), z.null()])
+    .optional()
+    .transform((v) => {
+      if (v === null || v === undefined) return v;
+      const n = typeof v === "string" ? parseFloat(v) : v;
+      return n === 0 ? null : n;
+    }),
+});
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
@@ -45,14 +62,80 @@ cardsRouter.get("/", async (req, res, next) => {
   }
 });
 
-/** POST /api/cards — add a card to the watchlist */
+/**
+ * POST /api/cards — add a card to the watchlist.
+ *
+ * The client picks a card from the catalog (pokemontcg.io) and sends back the
+ * pokemonTcgId + chosen variant. We re-fetch the card server-side so cardName,
+ * setName, cardNumber, and the variant prices are authoritative (the client
+ * payload is treated as a hint, not the source of truth).
+ *
+ * A pokemontcg.io failure rejects the create — without an authoritative
+ * catalog entry, the card has no useful identity.
+ */
 cardsRouter.post("/", async (req, res, next) => {
   try {
     const data = createCardSchema.parse(req.body);
+
+    const catalogCard = await fetchCardById(data.pokemonTcgId);
+    if (!catalogCard) {
+      throw new AppError(404, `Card "${data.pokemonTcgId}" not found in pokemontcg.io catalog`);
+    }
+
+    // Validate the chosen variant exists on this card (or accept "normal" as
+    // a fallback when the card has no TCGPlayer data — we still let users
+    // track new releases without prices)
+    const variantExists =
+      catalogCard.variants.includes(data.variant) ||
+      catalogCard.variants.length === 0;
+    if (!variantExists) {
+      throw new AppError(
+        400,
+        `Variant "${data.variant}" not available for this card. ` +
+          `Available: ${catalogCard.variants.join(", ") || "(none)"}`
+      );
+    }
+
+    const now = new Date();
     const card = await prisma.watchedCard.create({
-      data: { ...data, userId: req.user!.userId },
+      data: {
+        userId: req.user!.userId,
+        pokemonTcgId: catalogCard.id,
+        cardName: catalogCard.name,
+        setName: catalogCard.setName,
+        cardNumber: catalogCard.number,
+        variant: data.variant,
+      },
     });
-    res.status(201).json(card);
+
+    // Eagerly cache whatever prices pokemontcg.io returned — TCGPlayer
+    // variants, cardmarket aggregates, or both. We persist even when
+    // tcgplayer is empty (alt-arts like sm11-79a Jirachi-GX) so the
+    // resolver downstream has the cardmarket fallback to draw from.
+    let priceCache = null;
+    const hasAnyPrice =
+      catalogCard.variants.length > 0 || catalogCard.cardmarketPrices !== null;
+    if (hasAnyPrice) {
+      const variants = catalogCard.variantPrices as unknown as Prisma.InputJsonValue;
+      const cm = catalogCard.cardmarketPrices as unknown as Prisma.InputJsonValue | null;
+      priceCache = await prisma.priceCache.upsert({
+        where: { cardId: card.id },
+        create: {
+          cardId: card.id,
+          variants,
+          cardmarketPrices: cm ?? undefined,
+          expiresAt: new Date(now.getTime() + PRICE_CACHE_TTL_MS),
+        },
+        update: {
+          variants,
+          cardmarketPrices: cm ?? undefined,
+          fetchedAt: now,
+          expiresAt: new Date(now.getTime() + PRICE_CACHE_TTL_MS),
+        },
+      });
+    }
+
+    res.status(201).json({ ...card, priceCache });
   } catch (err) {
     next(err);
   }
@@ -78,12 +161,11 @@ cardsRouter.get("/:id", async (req, res, next) => {
   }
 });
 
-/** PATCH /api/cards/:id — update a watched card (e.g. change target price) */
+/** PATCH /api/cards/:id — update variant and/or targetPrice */
 cardsRouter.patch("/:id", async (req, res, next) => {
   try {
     const updates = updateCardSchema.parse(req.body);
 
-    // Verify ownership
     const existing = await prisma.watchedCard.findFirst({
       where: { id: req.params.id, userId: req.user!.userId },
     });

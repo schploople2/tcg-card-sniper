@@ -12,9 +12,11 @@ import {
 import { DealScoreBadge } from "./DealScoreBadge";
 import { CountdownTimer } from "./CountdownTimer";
 import { PriceBar } from "./PriceBar";
+import { TargetPriceInput } from "./TargetPriceInput";
 import { useCardListings, useRefreshListings } from "@/hooks/useListings";
-import { usePrices } from "@/hooks/usePrices";
+import { usePrices, usePriceHistory } from "@/hooks/usePrices";
 import { formatCurrency } from "@/lib/utils";
+import { getMarketForVariant, variantLabel } from "@/types";
 import type { WatchedCard } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -24,29 +26,85 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Build a synthetic 30-day sparkline from PriceCharting tiers.
- * Since PriceCharting returns a single current price (not time-series),
- * we model a plausible historical curve by adding small jitter.
- * Replace with real historical data if the API supports it.
+ * Human label + tailwind classes for the price-source chip. We surface this
+ * on every listing so the user can tell at a glance whether they're seeing
+ * a TCGPlayer-grade comparison (the gold standard for US Pokémon prices), a
+ * scraped fallback (less trustworthy, still USD), a cardmarket EUR proxy,
+ * or no comparison at all.
  */
-function buildSparkline(
-  basePrice: number
-): { date: string; price: number }[] {
-  const points: { date: string; price: number }[] = [];
-  let p = basePrice * 0.85;
-  for (let i = 29; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    p = p + (Math.random() - 0.45) * basePrice * 0.04;
-    p = Math.max(p, basePrice * 0.6);
-    points.push({
-      date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      price: Math.round(p * 100) / 100,
-    });
+function priceSourceChip(
+  source: string | null | undefined,
+  currency: string | null | undefined
+): { label: string; cls: string } | null {
+  switch (source) {
+    case "tcgplayer":
+      return { label: "TCGPlayer", cls: "bg-blue-900/30 text-blue-300 border-blue-700/40" };
+    case "tcgplayer_scrape":
+      return { label: "TCGPlayer (scraped)", cls: "bg-indigo-900/30 text-indigo-300 border-indigo-700/40" };
+    case "cardmarket":
+      return { label: `Cardmarket ${currency ?? "EUR"}`, cls: "bg-cyan-900/30 text-cyan-300 border-cyan-700/40" };
+    case "none":
+      return { label: "No market ref", cls: "bg-slate-800/60 text-slate-400 border-slate-700/40" };
+    default:
+      return null;
   }
-  // Pin last point to current price
-  points[points.length - 1].price = basePrice;
-  return points;
+}
+
+/**
+ * Tailwind classes for the condition-grade chip, mirroring the same visual
+ * language as DealTier (HOT/red, GOOD/green, etc.). Two-tone bg/border/text
+ * keeps it readable on the slate-900 backdrop.
+ */
+function conditionBadgeClasses(grade: string | null | undefined): string {
+  switch (grade) {
+    case "NM":
+      return "bg-emerald-900/40 text-emerald-400 border-emerald-700/40";
+    case "LP":
+      return "bg-teal-900/40 text-teal-400 border-teal-700/40";
+    case "MP":
+      return "bg-amber-900/40 text-amber-400 border-amber-700/40";
+    case "HP":
+      return "bg-orange-900/40 text-orange-400 border-orange-700/40";
+    case "DMG":
+      return "bg-red-900/40 text-red-400 border-red-700/40";
+    case "GRADED":
+      return "bg-purple-900/40 text-purple-300 border-purple-700/40";
+    default:
+      return "bg-slate-800/60 text-slate-400 border-slate-700/40";
+  }
+}
+
+/**
+ * Format a chart-ready sparkline from real PriceSnapshot history. Returns
+ * one point per snapshot day (whatever the API gave us), with the date
+ * already formatted for the X-axis label.
+ *
+ * If the API returns an empty history (brand-new card before the first
+ * snapshot lands), and we have a `fallbackBase` from the current market
+ * price, return a single-point series so the chart renders a flat dot
+ * rather than blank space — honest "today only" signal.
+ */
+function formatHistoryForChart(
+  points: { date: string; market: number }[],
+  fallbackBase: number | null
+): { date: string; price: number }[] {
+  if (points.length === 0 && fallbackBase != null && fallbackBase > 0) {
+    const d = new Date();
+    return [
+      {
+        date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+        price: Math.round(fallbackBase * 100) / 100,
+      },
+    ];
+  }
+
+  return points.map((p) => ({
+    date: new Date(p.date).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+    }),
+    price: Math.round(p.market * 100) / 100,
+  }));
 }
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -66,6 +124,9 @@ export function CardDetailDrawer({ card, onClose }: CardDetailDrawerProps) {
   const [tab, setTab] = useState("listings");
   const { data: listingsData, isLoading: listingsLoading } = useCardListings(card?.id ?? null);
   const { data: pricesData, isLoading: pricesLoading } = usePrices(card?.id ?? null);
+  // 30-day daily price snapshots (real, persisted) drive the chart. Empty
+  // until the daily snapshot cron has logged its first row for the card.
+  const { data: historyData } = usePriceHistory(card?.id ?? null, 30);
   const refresh = useRefreshListings(card?.id ?? "");
 
   if (!card) return null;
@@ -73,14 +134,29 @@ export function CardDetailDrawer({ card, onClose }: CardDetailDrawerProps) {
   const listings = listingsData?.listings ?? [];
   const prices = pricesData?.prices;
 
-  const marketPrice =
-    prices != null
-      ? Number(prices.loosePrice) || Number(prices.gradedPrice) || null
-      : listings[0]
-      ? Number(listings[0].marketPrice)
-      : null;
+  // The variant-derived target = TCGPlayer market price for the watched
+  // variant. (Historically the codebase has been calling this `targetPrice`
+  // since the market was used as an implicit threshold — kept for now to
+  // avoid sprawling rename; the user's explicit target is `userTarget`.)
+  const targetPrice =
+    getMarketForVariant(prices ?? null, card.variant) ??
+    getMarketForVariant(card.priceCache ?? null, card.variant);
 
-  const sparkline = marketPrice ? buildSparkline(marketPrice) : [];
+  // The actual user-set target price (P3). Null = no target. When set, the
+  // refresh job fires a TARGET_HIT alert as listings drop to/below it.
+  const userTarget =
+    card.targetPrice != null ? Number(card.targetPrice) : null;
+
+  const marketPrice =
+    targetPrice ??
+    (listings[0] ? Number(listings[0].marketPrice) : null);
+
+  // Build the chart from real snapshot history. When the API has nothing yet
+  // (new card, snapshot cron hasn't run), we synthesise a single point from
+  // the current market price so the chart renders a flat dot instead of
+  // empty space — but unlike the old buildSparkline jitter, this is honest:
+  // one real point, no fake history.
+  const sparkline = formatHistoryForChart(historyData?.points ?? [], marketPrice);
 
   const bestListing = listings[0];
 
@@ -104,16 +180,17 @@ export function CardDetailDrawer({ card, onClose }: CardDetailDrawerProps) {
             </p>
             <div className="mt-1.5 flex items-center gap-2 flex-wrap">
               <Badge className="text-[10px] bg-slate-800 text-slate-400 border border-slate-700">
-                {card.condition}
+                {variantLabel(card.variant)}
               </Badge>
               <span className="text-xs text-slate-500">
-                Target: <span className="text-[#F5C518] font-medium">{formatCurrency(card.targetPrice)}</span>
-              </span>
-              {marketPrice && (
-                <span className="text-xs text-slate-500">
-                  Market: <span className="text-slate-300 font-medium">{formatCurrency(marketPrice)}</span>
+                TCGPlayer market:{" "}
+                <span className="text-[#F5C518] font-medium">
+                  {targetPrice != null ? formatCurrency(targetPrice) : "—"}
                 </span>
-              )}
+              </span>
+              {/* User-set target threshold (P3). When a listing's totalCost
+                  drops to/below this, a TARGET_HIT alert fires on refresh. */}
+              <TargetPriceInput cardId={card.id} value={userTarget} />
             </div>
           </div>
           <Button
@@ -191,8 +268,26 @@ export function CardDetailDrawer({ card, onClose }: CardDetailDrawerProps) {
                   const lp = Number(listing.listingPrice);
                   const sc = listing.shippingCost != null ? Number(listing.shippingCost) : null;
                   const tc = Number(listing.totalCost);
-                  const mp = Number(listing.marketPrice);
+                  const nmMarket = Number(listing.marketPrice);
+                  // Use condition-adjusted market for the deal bar comparison;
+                  // a $39 MP card vs $90 (adjusted) is meaningful, vs $140 (NM)
+                  // is misleading. Falls back to NM market on legacy rows.
+                  const mp =
+                    listing.adjustedMarketPrice != null
+                      ? Number(listing.adjustedMarketPrice)
+                      : nmMarket;
                   const ds = Number(listing.dealScore);
+                  const grade = listing.conditionGrade;
+                  // Only surface the badge when we extracted a real grade —
+                  // UNKNOWN means "could be anything", showing it is just noise.
+                  const showGradeBadge = grade && grade !== "UNKNOWN";
+                  // UNSCORED tier means no market reference — skip the PriceBar
+                  // (would render with mp=0) and skip the dealScore badge text.
+                  const isUnscored = listing.dealTier === "UNSCORED" || mp <= 0;
+                  const sourceChip = priceSourceChip(
+                    listing.priceSource,
+                    listing.priceCurrency
+                  );
 
                   return (
                     <div
@@ -227,14 +322,42 @@ export function CardDetailDrawer({ card, onClose }: CardDetailDrawerProps) {
                         <DealScoreBadge tier={listing.dealTier} score={ds} />
                       </div>
 
-                      <PriceBar
-                        listingPrice={lp}
-                        shippingCost={sc}
-                        marketPrice={mp}
-                      />
+                      {isUnscored ? (
+                        // No market reference — show price + shipping plainly,
+                        // skip the proportion bar (the "vs" comparison is the
+                        // whole point and it would be meaningless here).
+                        <div className="flex items-baseline justify-between text-xs tabular-nums">
+                          <span className="text-slate-200 font-medium">
+                            {formatCurrency(lp)}
+                            {sc !== null && sc > 0 && (
+                              <span className="text-[#E63946] ml-1">
+                                +{formatCurrency(sc)} ship
+                              </span>
+                            )}
+                            {sc === null && (
+                              <span className="text-emerald-500 ml-1">free ship</span>
+                            )}
+                          </span>
+                          <span className="text-slate-500">no market reference</span>
+                        </div>
+                      ) : (
+                        <PriceBar
+                          listingPrice={lp}
+                          shippingCost={sc}
+                          marketPrice={mp}
+                        />
+                      )}
 
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 flex-wrap">
+                          {sourceChip && (
+                            <Badge
+                              className={`text-[10px] border ${sourceChip.cls}`}
+                              title={`Market price source: ${sourceChip.label}`}
+                            >
+                              {sourceChip.label}
+                            </Badge>
+                          )}
                           {listing.listingType === "AUCTION" ? (
                             <Badge className="text-[10px] bg-orange-900/40 text-orange-400 border border-orange-700/40">
                               Auction{listing.bids != null ? ` · ${listing.bids} bids` : ""}
@@ -244,7 +367,25 @@ export function CardDetailDrawer({ card, onClose }: CardDetailDrawerProps) {
                               Buy Now
                             </Badge>
                           )}
-                          {tc <= card.targetPrice && (
+                          {showGradeBadge && (
+                            <Badge
+                              className={`text-[10px] border ${conditionBadgeClasses(grade)}`}
+                              title={
+                                grade === "GRADED"
+                                  ? `Graded slab — scored against ${formatCurrency(mp)} (NM market ${formatCurrency(nmMarket)} × 1.5)`
+                                  : `Condition ${grade} — scored against ${formatCurrency(mp)} (NM market ${formatCurrency(nmMarket)})`
+                              }
+                            >
+                              {grade}
+                            </Badge>
+                          )}
+                          {/* "at target" only fires when the user has *set*
+                              a target AND this listing's total is at or below
+                              it. Previously this used market price as the
+                              threshold, which made every below-market listing
+                              show the badge — useful as a heuristic, but
+                              confusing now that targets are first-class. */}
+                          {userTarget != null && tc <= userTarget && (
                             <Badge className="text-[10px] bg-emerald-900/40 text-emerald-400 border border-emerald-700/40">
                               at target
                             </Badge>
@@ -326,32 +467,58 @@ export function CardDetailDrawer({ card, onClose }: CardDetailDrawerProps) {
                         stroke="#F5C518"
                         strokeWidth={2}
                         fill="url(#priceGrad)"
-                        dot={false}
+                        // Show a dot for very short series (e.g. 1-point
+                        // first-day state) so it's actually visible.
+                        dot={sparkline.length <= 2}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
 
-                {prices && (
+                {/* Honest empty-state hint when we only have a synthetic
+                    "today only" point — the chart looks like a sparkline,
+                    but it's really 1 point. Tell the user so they don't
+                    mistake the flat dot for "price is stable." */}
+                {(historyData?.points.length ?? 0) === 0 && (
+                  <p className="mt-2 text-[10px] text-slate-600">
+                    Price history starts tomorrow — daily snapshots build over time.
+                  </p>
+                )}
+                {(historyData?.points.length ?? 0) > 0 && (
+                  <p className="mt-2 text-[10px] text-slate-600">
+                    {historyData!.points.length}-day history · source: {historyData!.points[historyData!.points.length - 1]?.source ?? "—"}
+                  </p>
+                )}
+
+                {prices?.variants && (
                   <div className="mt-4 grid grid-cols-2 gap-2">
-                    {[
-                      ["Loose", prices.loosePrice],
-                      ["CIB", prices.cibPrice],
-                      ["New", prices.newPrice],
-                      ["Graded", prices.gradedPrice],
-                    ]
-                      .filter(([, v]) => v != null)
-                      .map(([label, val]) => (
-                        <div
-                          key={label as string}
-                          className="rounded-lg bg-slate-800/60 px-3 py-2 flex justify-between text-xs"
-                        >
-                          <span className="text-slate-500">{label}</span>
-                          <span className="text-slate-200 font-medium">
-                            {formatCurrency(Number(val))}
-                          </span>
-                        </div>
-                      ))}
+                    {Object.entries(prices.variants)
+                      .filter(([, v]) => v.market != null)
+                      .map(([key, v]) => {
+                        const isActive = key === card.variant;
+                        return (
+                          <div
+                            key={key}
+                            className={[
+                              "rounded-lg px-3 py-2 flex justify-between text-xs border",
+                              isActive
+                                ? "bg-[#F5C518]/10 border-[#F5C518]/40"
+                                : "bg-slate-800/60 border-transparent",
+                            ].join(" ")}
+                          >
+                            <span className="text-slate-500">{variantLabel(key)}</span>
+                            <span
+                              className={
+                                isActive
+                                  ? "text-[#F5C518] font-medium"
+                                  : "text-slate-200 font-medium"
+                              }
+                            >
+                              {formatCurrency(Number(v.market))}
+                            </span>
+                          </div>
+                        );
+                      })}
                   </div>
                 )}
               </>
@@ -451,27 +618,37 @@ export function CardDetailDrawer({ card, onClose }: CardDetailDrawerProps) {
                 </div>
 
                 {/* Target check */}
-                <div
-                  className={[
-                    "rounded-xl border px-4 py-3 text-xs",
-                    Number(bestListing.totalCost) <= card.targetPrice
-                      ? "border-emerald-700/50 bg-emerald-900/20 text-emerald-400"
-                      : "border-slate-700 bg-slate-800/40 text-slate-500",
-                  ].join(" ")}
-                >
-                  {Number(bestListing.totalCost) <= card.targetPrice ? (
-                    <span>
-                      ✓ Total cost ({formatCurrency(Number(bestListing.totalCost))}) is at or
-                      below your target ({formatCurrency(card.targetPrice)})
-                    </span>
-                  ) : (
-                    <span>
-                      Total cost ({formatCurrency(Number(bestListing.totalCost))}) exceeds your
-                      target ({formatCurrency(card.targetPrice)}) by{" "}
-                      {formatCurrency(Number(bestListing.totalCost) - card.targetPrice)}
-                    </span>
-                  )}
-                </div>
+                {targetPrice == null ? (
+                  <div className="rounded-xl border border-slate-700 bg-slate-800/40 px-4 py-3 text-xs text-slate-500">
+                    No TCGPlayer market price for the{" "}
+                    <span className="text-slate-300">{variantLabel(card.variant)}</span>{" "}
+                    variant yet — refresh to populate it.
+                  </div>
+                ) : (
+                  <div
+                    className={[
+                      "rounded-xl border px-4 py-3 text-xs",
+                      Number(bestListing.totalCost) <= targetPrice
+                        ? "border-emerald-700/50 bg-emerald-900/20 text-emerald-400"
+                        : "border-slate-700 bg-slate-800/40 text-slate-500",
+                    ].join(" ")}
+                  >
+                    {Number(bestListing.totalCost) <= targetPrice ? (
+                      <span>
+                        ✓ Total cost ({formatCurrency(Number(bestListing.totalCost))}) is at or
+                        below the {variantLabel(card.variant)} market price
+                        ({formatCurrency(targetPrice)})
+                      </span>
+                    ) : (
+                      <span>
+                        Total cost ({formatCurrency(Number(bestListing.totalCost))}) exceeds the
+                        {" "}{variantLabel(card.variant)} market price
+                        ({formatCurrency(targetPrice)}) by{" "}
+                        {formatCurrency(Number(bestListing.totalCost) - targetPrice)}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </TabsContent>

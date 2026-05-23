@@ -19,4 +19,10 @@ export default defineConfig({
       },
     },
   },
+  // `vite preview` runs in prod on Railway. It rejects unknown Host
+  // headers by default — allow Railway's *.up.railway.app domain.
+  preview: {
+    host: true,
+    allowedHosts: [".up.railway.app"],
+  },
 });

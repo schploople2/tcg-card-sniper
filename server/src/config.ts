@@ -17,9 +17,51 @@ const envSchema = z.object({
   EBAY_CLIENT_SECRET: z.string().min(1, "EBAY_CLIENT_SECRET is required"),
   EBAY_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),
 
-  PRICECHARTING_API_KEY: z.string().min(1, "PRICECHARTING_API_KEY is required"),
+  /**
+   * Enables the TCGPlayer scraping fallback. Defaults OFF because TCGPlayer's
+   * product pages are fully client-rendered (React app shell) — static
+   * scraping returns no price data, so the scraper is a no-op until we wire
+   * up a headless browser (playwright/puppeteer) or find an authorised JSON
+   * endpoint. The service is left in place so flipping this flag back on
+   * after that work is a single env var change. For now, alt-art cards fall
+   * through to the cardmarket fallback.
+   */
+  ENABLE_TCGPLAYER_SCRAPE: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((v) => v === "true"),
+
+  /**
+   * Marketplace Account Deletion notification config.
+   * Verification token must be 32-80 chars, alphanumeric + `_-` only (eBay's rule).
+   * Endpoint URL is the exact public HTTPS URL eBay will call — used in the
+   * SHA-256 challenge response, so it must match byte-for-byte what's saved
+   * in the eBay developer console.
+   */
+  EBAY_DELETION_VERIFICATION_TOKEN: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{32,80}$/, "EBAY_DELETION_VERIFICATION_TOKEN must be 32-80 chars [A-Za-z0-9_-]")
+    .default("dev_placeholder_verification_token_change_me_32"),
+  EBAY_DELETION_ENDPOINT_URL: z
+    .string()
+    .url()
+    .default("https://example.com/ebay/account-deletion"),
 
   CORS_ORIGIN: z.string().default("http://localhost:5173"),
+
+  /**
+   * Pc — Vision-AI card detection. When `OCR_PROVIDER=claude`, the lot
+   * analyzer's "Suggest cards from photos" button will call Anthropic's
+   * Vision API to identify cards in eBay listing images. Set to `none` to
+   * disable cleanly (the UI hides the button when the endpoint returns 503).
+   *
+   * `ANTHROPIC_API_KEY` is only required when `OCR_PROVIDER=claude`.
+   * `OCR_MAX_IMAGES_PER_LOT` caps spend per call — at ~$0.003/image this
+   * keeps a single lot under $0.02 even with the heaviest listings.
+   */
+  OCR_PROVIDER: z.enum(["claude", "none"]).default("none"),
+  ANTHROPIC_API_KEY: z.string().optional(),
+  OCR_MAX_IMAGES_PER_LOT: z.coerce.number().int().min(1).max(20).default(6),
 });
 
 const parsed = envSchema.safeParse(process.env);

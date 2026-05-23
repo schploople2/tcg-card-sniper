@@ -12,7 +12,10 @@ interface DealScoreBadgeProps {
  */
 export function DealScoreBadge({ tier, score }: DealScoreBadgeProps) {
   const cfg = DEAL_TIER_CONFIG[tier];
-  const scoreStr = score > 0 ? `+${score}%` : `${score}%`;
+  // UNSCORED listings have no meaningful percentage — showing "+0%" reads as
+  // "fair price" which is misleading when the truth is "we don't know."
+  const isUnscored = tier === "UNSCORED";
+  const scoreStr = isUnscored ? "" : score > 0 ? `+${score}%` : `${score}%`;
   return (
     <span
       className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold tabular-nums"

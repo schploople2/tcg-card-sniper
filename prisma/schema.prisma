@@ -16,15 +16,43 @@ datasource db {
 // ─────────────────────────────────────────────────────────────────────────────
 
 enum DealTier {
-  HOT   // > 25% below market (after shipping)
-  GOOD  // 10–25% below market
-  FAIR  // 0–10% below market
-  OVER  // above market price
+  HOT       // > 25% below market (after shipping)
+  GOOD      // 10–25% below market
+  FAIR      // 0–10% below market
+  OVER      // above market price
+  /// No market reference price available (e.g. alt-art on pokemontcg.io with no
+  /// tcgplayer.prices and no scraped/cardmarket fallback). Listings are still
+  /// surfaced — the user can browse — but no deal tier can be assigned.
+  UNSCORED
 }
 
 enum ListingType {
   AUCTION
   FIXED_PRICE
+}
+
+/// More precise listing shape. The legacy `ListingType` only distinguished
+/// AUCTION vs FIXED_PRICE; many eBay listings are *both* (Buy It Now plus
+/// an auction price), and a separate "pure auction" (no Buy It Now option)
+/// requires different UX — countdown timer becomes the headline, not the
+/// price. Lets the UI surface them in a dedicated tab.
+///   - AUCTION_ONLY:      currentBidPrice present, no Buy It Now
+///   - BIN:               Buy It Now only, no auction
+///   - BIN_PLUS_AUCTION:  Buy It Now AND auction running in parallel
+enum ListingKind {
+  AUCTION_ONLY
+  BIN
+  BIN_PLUS_AUCTION
+}
+
+/// Why an alert fired. Lets the UI / notifier present a distinct message
+/// per kind without storing prose in the row.
+///   - TARGET_HIT: a listing's totalCost fell at/below user-set targetPrice
+///   - HOT_DEAL:   a listing was classified HOT by the deal-score engine
+///                 (>=25% under adjusted market) regardless of any target
+enum AlertKind {
+  TARGET_HIT
+  HOT_DEAL
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -38,7 +66,9 @@ model User {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
-  watchedCards WatchedCard[]
+  watchedCards   WatchedCard[]
+  alerts         Alert[]
+  lotAnnotations LotAnnotation[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -46,23 +76,74 @@ model User {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model WatchedCard {
-  id          String   @id @default(cuid())
-  userId      String
-  cardName    String
-  setName     String
-  cardNumber  String?
-  condition   String   @default("Raw NM")
-  /// Maximum total cost the user wants to pay (listing price + shipping).
-  /// Alerts fire when any listing's totalCost falls at or below this value.
-  targetPrice Decimal  @db.Decimal(10, 2)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(cuid())
+  userId       String
+  /// pokemontcg.io card ID (e.g. "base1-4") — drives precise price lookups
+  pokemonTcgId String
+  cardName     String
+  setName      String
+  cardNumber   String?
+  /// TCGPlayer variant key (e.g. "normal", "holofoil", "reverseHolofoil",
+  /// "1stEditionHolofoil"). Determines which variant's market price drives
+  /// the alert threshold AND the eBay search keyword qualifier.
+  variant      String   @default("normal")
+  /// Optional user-set target price (USD). When a refresh fetches a listing
+  /// whose totalCost <= targetPrice, an Alert (kind = TARGET_HIT) is created.
+  /// Null = no target; alerts only fire for HOT-tier deals.
+  targetPrice  Decimal? @db.Decimal(10, 2)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  listings   Listing[]
-  priceCache PriceCache?
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listings       Listing[]
+  priceCache     PriceCache?
+  priceSnapshots PriceSnapshot[]
+  alerts         Alert[]
 
   @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Alert — a notification candidate fired when a listing crosses a user's
+// target price OR when a listing scores HOT against adjusted market.
+//
+// Lifecycle:
+//   1. Refresh job evaluates each fresh listing against the watched card's
+//      targetPrice and dealTier, calling `evaluateListings()` in alerts.ts.
+//   2. New rows are created with deliveredAt = null and readAt = null.
+//   3. P4 (in-app notifications) will toggle readAt as the user views them.
+//   4. A future P11 email-delivery job will toggle deliveredAt.
+//
+// Dedup: at-most one row per (cardId, listingId, kind). We never re-fire
+// the same alert twice for the same listing, even if it remains a HOT deal
+// across multiple refreshes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Alert {
+  id        String   @id @default(cuid())
+  /// Denormalised — saves a join when surfacing alerts to a user.
+  userId    String
+  cardId    String
+  listingId String
+  kind      AlertKind
+
+  /// When the in-app notification was marked read (P4). null = unread.
+  readAt      DateTime?
+  /// When (if ever) we shipped this alert via a delivery channel (email,
+  /// push, etc.). null = not yet delivered. The Alert row itself is the
+  /// in-app representation; deliveredAt tracks side-channels.
+  deliveredAt DateTime?
+  createdAt   DateTime @default(now())
+
+  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card    WatchedCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  /// We don't FK to Listing — listings are short-lived (30-min TTL) and
+  /// cascade-delete would erase alert history every time a listing rotates.
+  /// Store the ebayItemId-derived id as plain text; UI joins lazily.
+
+  @@unique([cardId, listingId, kind])
+  @@index([userId, readAt])
+  @@index([createdAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -72,8 +153,9 @@ model WatchedCard {
 model Listing {
   id         String @id @default(cuid())
   cardId     String
-  /// eBay item ID — unique per listing, used to deduplicate on upsert
-  ebayItemId String @unique
+  /// eBay item ID. Unique *per watched card*, not globally — multiple users
+  /// can each track the same eBay listing on their own watched-card row.
+  ebayItemId String
 
   title    String
   imageUrl String?
@@ -87,13 +169,36 @@ model Listing {
   /// listingPrice + (shippingCost ?? 0) — stored for fast sorting/filtering
   totalCost Decimal @db.Decimal(10, 2)
 
-  /// PriceCharting market price at fetch time (used for deal score calc)
+  /// NM (Near Mint) market price at fetch time. This is the canonical
+  /// "full price" reference; dealScore compares against an adjusted version
+  /// below. May be 0 when no price source has data (UNSCORED tier).
   marketPrice Decimal @db.Decimal(10, 2)
-  /// ((marketPrice - totalCost) / marketPrice) * 100, rounded to nearest int
+  /// Where the marketPrice came from: "tcgplayer" (pokemontcg.io tcgplayer.prices),
+  /// "tcgplayer_scrape" (our scraping fallback), "cardmarket"
+  /// (pokemontcg.io cardmarket.prices, EUR), or "none" (no source — UNSCORED).
+  priceSource String?
+  /// ISO 4217 currency of marketPrice. USD for tcgplayer sources, EUR for
+  /// cardmarket. Null for legacy rows; UI assumes USD when null.
+  priceCurrency String?
+  /// marketPrice × condition multiplier (e.g. MP = 0.65×). This is the
+  /// number the score and tier are calculated against — flagging an MP
+  /// listing against full NM market produces false HOT alerts.
+  adjustedMarketPrice Decimal? @db.Decimal(10, 2)
+  /// Condition grade parsed from the listing title: NM | LP | MP | HP |
+  /// DMG | GRADED | UNKNOWN. Drives the multiplier above.
+  conditionGrade String?
+  /// ((adjustedMarketPrice - totalCost) / adjustedMarketPrice) * 100,
+  /// rounded to nearest int
   dealScore Int
   dealTier  DealTier
 
   listingType    ListingType
+  /// More precise listing shape (AUCTION_ONLY / BIN / BIN_PLUS_AUCTION).
+  /// Null on legacy rows fetched before P5 — UI treats null as BIN since
+  /// pure-auction listings were previously dropped at fetch time.
+  kind           ListingKind?
+  /// eBay's coarse condition field ("Ungraded", "Used", etc.). Distinct from
+  /// `conditionGrade` which is our title-parsed NM/LP/MP/HP/DMG/GRADED.
   condition      String?
   seller         String?
   sellerFeedback Float?
@@ -108,28 +213,292 @@ model Listing {
 
   card WatchedCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
 
+  @@unique([cardId, ebayItemId])
   @@index([cardId])
   @@index([dealTier, dealScore])
   @@index([expiresAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PriceCache — PriceCharting data cached per card for 6 hours
+// PriceCache — TCGPlayer prices (via pokemontcg.io) cached per card for 6 hours
 // ─────────────────────────────────────────────────────────────────────────────
 
 model PriceCache {
   id     String @id @default(cuid())
   cardId String @unique
 
-  /// Prices in dollars (PriceCharting returns cents — divide by 100 before storing)
-  loosePrice  Decimal? @db.Decimal(10, 2)
-  cibPrice    Decimal? @db.Decimal(10, 2)
-  newPrice    Decimal? @db.Decimal(10, 2)
-  gradedPrice Decimal? @db.Decimal(10, 2)
+  /// Full TCGPlayer prices object from pokemontcg.io, keyed by variant name:
+  ///   { "normal":   { low, mid, high, market, directLow },
+  ///     "holofoil": { low, mid, high, market, directLow }, ... }
+  /// All values are USD. Null when pokemontcg.io has no TCGPlayer data
+  /// for the card (rare, but happens with very new releases).
+  variants Json?
+  /// Cardmarket aggregate prices (EUR) — single flat object, not per-variant.
+  /// Cached alongside TCGPlayer so the fallback resolver doesn't need a
+  /// separate fetch. Null when pokemontcg.io has no cardmarket data.
+  cardmarketPrices Json?
 
   fetchedAt DateTime @default(now())
   /// Cache expires after 6 hours
   expiresAt DateTime
 
   card WatchedCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TcgplayerScrapeCache — fallback prices scraped from TCGPlayer for cards
+// where pokemontcg.io doesn't expose tcgplayer.prices (alt-arts, special
+// illustration rares, very new releases). 24-hour TTL; gated behind the
+// ENABLE_TCGPLAYER_SCRAPE feature flag.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Lot — an eBay listing that contains multiple cards bundled together.
+//
+// Lots are detected and valued by the lot pipeline (services/lotDetection,
+// cardNameExtractor, lotValuation). They live in their own table rather than
+// piggybacking on `Listing` because the data model is fundamentally different:
+//   - Listings represent ONE printing; lots represent N printings.
+//   - Lots don't have a `marketPrice` — they have a value RANGE
+//     (lowEstimate / highEstimate) because parsed names are often ambiguous.
+//
+// The `parsedCards` JSON column captures everything the extractor found —
+// names, quantities, and the candidate printings for each ambiguous name.
+// The UI uses it to render the "Refine printings" picker without re-parsing
+// (which would mean another DB round-trip + repeat trie scan).
+//
+// TTL: 30 minutes (same as Listing). The refresh cron re-parses on expiry.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Lot {
+  id         String @id @default(cuid())
+  ebayItemId String @unique
+
+  title    String
+  imageUrl String?
+  ebayUrl  String
+
+  /// Listing price before shipping (BIN or current bid for auction lots).
+  listingPrice Decimal  @db.Decimal(10, 2)
+  /// NULL = free shipping.
+  shippingCost Decimal? @db.Decimal(10, 2)
+  /// listingPrice + (shippingCost ?? 0) — convenience for sorting.
+  totalCost    Decimal  @db.Decimal(10, 2)
+
+  /// Conservative valuation: Σ (min market across candidate printings)
+  /// for each parsed name × quantity. Drives lotScore + lotTier so HOT
+  /// only fires when even the cheapest interpretation beats the listing.
+  lowEstimate  Decimal  @db.Decimal(12, 2)
+  /// Optimistic valuation: Σ (max market across candidates) × quantity.
+  /// Displayed as the upper bound of the value range; not used for scoring.
+  highEstimate Decimal  @db.Decimal(12, 2)
+
+  /// ((lowEstimate - totalCost) / lowEstimate) × 100, rounded. Same shape as
+  /// Listing.dealScore so tier logic carries over without translation.
+  lotScore Int
+  lotTier  DealTier
+
+  /// Whether this lot is BIN, AUCTION_ONLY, or BIN_PLUS_AUCTION. Mirrors
+  /// Listing.kind so the existing CountdownTimer / auction-tab UI patterns
+  /// can be reused.
+  kind ListingKind?
+
+  /// Auction-only fields. NULL for BIN-only lots.
+  bids    Int?
+  endTime DateTime?
+
+  /// Array<{ name, quantity, confidence, candidates: Array<{ cardId, setName,
+  /// setReleaseDate, number, market, currency }> }>.
+  /// Stored as JSON so the UI's "Refine printings" picker has everything it
+  /// needs without re-parsing. Schema docs live in services/lotValuation.ts.
+  parsedCards Json
+
+  parsedAt  DateTime @default(now())
+  /// 30-min TTL so the refresh cron knows when to re-fetch.
+  expiresAt DateTime
+
+  @@index([lotTier, lotScore])
+  @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LotAnnotation — a user's manual analysis of a lot listing.
+//
+// The auto-extractor handles titles that name specific cards. Generic lots
+// ("100 Card Mystery Pack") need humans: the user opens the listing's
+// images, identifies cards visually, and adds them here. The lot's value
+// range is re-computed by overlaying these onto the auto-parsed set.
+//
+// Keyed by (userId, ebayItemId) so each user maintains their own analysis
+// of any eBay listing. Survives the 30-min Lot TTL so analyses persist
+// across re-fetches (and re-appear next time the same listing surfaces).
+//
+// `addedCards` schema (Json): Array<{ cardId, quantity, note }>
+//   - cardId    — pokemontcg.io id from the local Card table
+//   - quantity  — defaults to 1
+//   - note      — optional free-text the user attached ("foil version",
+//                 "looks like LP", etc.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model LotAnnotation {
+  id         String @id @default(cuid())
+  userId     String
+  /// eBay listing id we're annotating. Not a FK to Lot — annotations outlive
+  /// the 30-min Lot TTL on purpose.
+  ebayItemId String
+  /// User-added cards (see schema above).
+  addedCards Json   @default("[]")
+  /// Free-form notes the user attached to the analysis.
+  notes      String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, ebayItemId])
+  @@index([ebayItemId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LotImage — eBay-provided images for a lot listing, cached for the
+// analyzer modal AND scaffolded for future OCR/vision pipelines.
+//
+// eBay's Browse API getItem endpoint returns up to ~12 images per listing
+// (thumbnail, additional photos). We fetch lazily when a user opens the
+// analyzer modal and persist them so subsequent opens are instant.
+//
+// Pre-OCR usage: just `imageUrl` for the gallery.
+// Post-OCR usage (future): add `ocrText`, `detectedCardIds` columns and
+// run an enrichment job against `ocrText IS NULL` rows.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model LotImage {
+  id         String   @id @default(cuid())
+  ebayItemId String
+  /// 0-indexed position in the eBay item's image array (0 = hero shot).
+  position   Int
+  imageUrl   String
+  /// Reserved for the future vision pipeline. Null today.
+  ocrText    String?
+  fetchedAt  DateTime @default(now())
+
+  @@unique([ebayItemId, position])
+  @@index([ebayItemId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Card — local cache of the pokemontcg.io catalog (~17k cards).
+//
+// Why a local table? Live searches against api.pokemontcg.io require 3-5
+// parallel Lucene queries with ~500ms latency each. Querying our own
+// Postgres with a trigram index resolves in single-digit ms and supports
+// the same fuzzy/partial/cross-era matching (Mew vs Mewtwo, Sylveon-EX
+// vs Sylveon ex, "Radiant Collection" subset, etc.).
+//
+// Refreshed by jobs/syncCatalog.ts on a weekly cron. Prices are NOT stored
+// here — those live in PriceCache (TCGPlayer) and TcgplayerScrapeCache
+// (scrape fallback). This table is metadata only: name, set, number,
+// rarity, images, and the list of TCGPlayer variants we can score against.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Card {
+  /// pokemontcg.io id — same shape we already use everywhere ("base1-4", "sm11-79a").
+  id     String @id
+  name   String
+  number String
+  rarity String?
+
+  setId          String
+  setName        String
+  setSeries      String
+  setReleaseDate String?
+  setTotal       Int?
+
+  imageSmall String?
+  imageLarge String?
+
+  /// TCGPlayer variant keys present on this card ("holofoil", "normal",
+  /// "reverseHolofoil", "1stEditionHolofoil", ...). Empty array when the
+  /// card has no TCGPlayer pricing (alt-arts like sm11-79a). Stored as
+  /// String[] so we can `?| array['holofoil']` filter cheaply.
+  variants String[]
+
+  /// Whether pokemontcg.io exposes cardmarket.prices for this card. Lets us
+  /// quickly find "cards with at least *some* pricing source" without
+  /// joining another table.
+  hasCardmarket Boolean @default(false)
+
+  /// Snapshot of TCGPlayer prices at sync time (USD). Keyed by variant —
+  /// same shape as PriceCache.variants but living on the catalog row so
+  /// lot-valuation can read prices without a PriceCache row existing.
+  /// Stale-by-weekly (re-synced when syncCatalog runs); good enough for
+  /// lot-level "rough value" estimates.
+  tcgplayerPrices Json?
+  /// Cardmarket aggregate prices (EUR), null when absent. Fallback for
+  /// alt-arts that have no TCGPlayer data.
+  cardmarketPrices Json?
+
+  /// Indexed by sync time for "what's been refreshed lately" diagnostics.
+  syncedAt DateTime @default(now())
+
+  @@index([setId])
+  @@index([number])
+  // GIN/trigram indexes on `name` and `setName` are added in the SQL
+  // migration — Prisma doesn't have first-class support for them.
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PriceSnapshot — daily point-in-time record of a watched card's market
+// price (from whichever source resolved at fetch time). Powers the real
+// price-history chart in CardDetailDrawer, replacing the synthetic sparkline.
+//
+// Cardinality: one row per (cardId, variant) per day. The daily cron writes
+// at 00:05 UTC and prunes rows older than 1 year as it goes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model PriceSnapshot {
+  id      String   @id @default(cuid())
+  cardId  String
+  /// pokemontcg.io variant key the snapshot is for ("holofoil", "normal",
+  /// "reverseHolofoil", etc.). Mirrors WatchedCard.variant at snapshot time.
+  variant String
+  /// "tcgplayer" | "tcgplayer_scrape" | "cardmarket" | "none". When "none",
+  /// market is 0 — kept as a row so we can tell "we tried and found no price"
+  /// apart from "we didn't try."
+  source  String
+  /// Market price in the source's native currency. Decimal(12,2) accommodates
+  /// vintage Charizards trading near $200k without overflow.
+  market  Decimal  @db.Decimal(12, 2)
+  /// ISO 4217 currency. USD for tcgplayer sources, EUR for cardmarket.
+  currency  String   @default("USD")
+  takenAt   DateTime @default(now())
+
+  card WatchedCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([cardId, takenAt])
+  /// Belt-and-suspenders: one snapshot per card+variant per day. Date is
+  /// coerced via the cron job (it always writes at 00:05 UTC) so this is
+  /// effectively a daily uniqueness guarantee.
+  @@index([takenAt])
+}
+
+model TcgplayerScrapeCache {
+  id String @id @default(cuid())
+  /// pokemontcg.io card id (e.g. "sm11-79a"). Not unique-by-card here because
+  /// we also need to cache "miss" results (prices = null) to avoid hammering
+  /// TCGPlayer on every refresh for a card that has no listing.
+  pokemonTcgId String  @unique
+  /// The TCGPlayer product URL we scraped (or attempted). Null when
+  /// resolution failed (card not findable on TCGPlayer).
+  productUrl   String?
+  /// Parsed price data: { low, mid, high, market } in USD. Null on miss.
+  prices       Json?
+  currency     String   @default("USD")
+  /// Distinguishes a real cache miss (TCGPlayer has no record) from a
+  /// transient scrape failure (network, rate-limit, parse error).
+  status       String   @default("ok") // "ok" | "not_found" | "scrape_error"
+  fetchedAt    DateTime @default(now())
+  expiresAt    DateTime
+
+  @@index([expiresAt])
 }

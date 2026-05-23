@@ -33,3 +33,10 @@ pnpm-debug.log*
 
 # Railway
 .railway/
+
+# Test coverage output
+coverage/
+
+# Session recap notes — may include credentials echoed in chat transcripts
+SESSION_RECAP.md
+SESSION_RECAP_*.md

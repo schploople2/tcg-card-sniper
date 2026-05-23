@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Plus, Pencil, Trash2, RefreshCw, TrendingUp, ChevronDown } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Plus, Pencil, Trash2, RefreshCw, TrendingUp, ChevronDown, Search, Check } from "lucide-react";
 import { PageShell } from "@/components/layout/PageShell";
 import { DealScoreBadge } from "@/components/shared/DealScoreBadge";
 import { PriceBar } from "@/components/shared/PriceBar";
@@ -11,8 +11,14 @@ import {
   useDeleteCard,
 } from "@/hooks/useCards";
 import { useRefreshListings } from "@/hooks/useListings";
+import { useCatalogSearch } from "@/hooks/useCatalog";
 import { formatCurrency } from "@/lib/utils";
-import type { WatchedCard, CreateCardPayload } from "@/types";
+import {
+  getMarketForVariant,
+  variantLabel,
+  type WatchedCard,
+  type CatalogCard,
+} from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -42,7 +48,153 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-const CONDITIONS = ["Raw", "PSA 10", "PSA 9", "PSA 8", "BGS 10", "BGS 9.5", "CGC 10"] as const;
+// ─── Debounce hook (local) ────────────────────────────────────────────────────
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(t);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+// ─── Catalog picker (search + results) ────────────────────────────────────────
+
+interface CatalogPickerProps {
+  selected: CatalogCard | null;
+  onSelect: (card: CatalogCard | null) => void;
+}
+
+function CatalogPicker({ selected, onSelect }: CatalogPickerProps) {
+  const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 300);
+  const { data: results, isFetching, isError } = useCatalogSearch(debouncedQuery);
+
+  // Once the user picks a card, hide results and show the selection card
+  if (selected) {
+    return (
+      <div className="rounded-lg border border-[#F5C518]/40 bg-slate-800/40 p-3 flex gap-3">
+        {selected.imageSmall ? (
+          <img
+            src={selected.imageSmall}
+            alt={selected.name}
+            className="h-20 w-14 object-contain rounded shrink-0 bg-slate-900"
+          />
+        ) : (
+          <div className="h-20 w-14 rounded bg-slate-900 flex items-center justify-center text-xl shrink-0">
+            🃏
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-slate-100 text-sm truncate">
+            {selected.name}{" "}
+            <span className="text-slate-500 font-normal">#{selected.number}</span>
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5 truncate">{selected.setName}</p>
+          {selected.rarity && (
+            <Badge className="mt-1.5 text-[10px] bg-slate-800 text-slate-400 border border-slate-700">
+              {selected.rarity}
+            </Badge>
+          )}
+          {selected.previewMarket != null && (
+            <p className="mt-1 text-xs text-slate-400">
+              TCGPlayer market:{" "}
+              <span className="text-[#F5C518] font-medium">
+                {formatCurrency(selected.previewMarket)}
+              </span>
+            </p>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="text-slate-400 hover:text-slate-200 self-start"
+          onClick={() => onSelect(null)}
+        >
+          Change
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+        <Input
+          autoFocus
+          placeholder="Search Pokémon cards…"
+          className="pl-8 bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
+      </div>
+
+      {/* Results list */}
+      <div className="max-h-72 overflow-y-auto rounded-lg border border-slate-800 bg-slate-900/40">
+        {query.trim().length < 2 ? (
+          <div className="px-3 py-6 text-center text-xs text-slate-500">
+            Type a card name to search the pokemontcg.io catalog.
+          </div>
+        ) : isFetching ? (
+          <div className="px-3 py-3 space-y-2">
+            {[...Array(3)].map((_, i) => (
+              <Skeleton key={i} className="h-14 w-full bg-slate-800 rounded" />
+            ))}
+          </div>
+        ) : isError ? (
+          <div className="px-3 py-6 text-center text-xs text-red-400">
+            Catalog search failed — try again in a moment.
+          </div>
+        ) : !results?.length ? (
+          <div className="px-3 py-6 text-center text-xs text-slate-500">
+            No matches for &ldquo;{debouncedQuery}&rdquo;.
+          </div>
+        ) : (
+          <ul className="divide-y divide-slate-800">
+            {results.map((c) => (
+              <li key={c.id}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(c)}
+                  className="w-full px-3 py-2 flex gap-3 items-center hover:bg-slate-800/60 transition-colors text-left"
+                >
+                  {c.imageSmall ? (
+                    <img
+                      src={c.imageSmall}
+                      alt={c.name}
+                      className="h-12 w-9 object-contain rounded shrink-0 bg-slate-900"
+                    />
+                  ) : (
+                    <div className="h-12 w-9 rounded bg-slate-900 flex items-center justify-center text-base shrink-0">
+                      🃏
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-slate-200 truncate">
+                      {c.name}{" "}
+                      <span className="text-slate-500">#{c.number}</span>
+                    </p>
+                    <p className="text-[11px] text-slate-500 truncate">
+                      {c.setName} · {c.setSeries}
+                    </p>
+                  </div>
+                  {c.previewMarket != null && (
+                    <span className="text-xs text-[#F5C518] font-medium shrink-0">
+                      {formatCurrency(c.previewMarket)}
+                    </span>
+                  )}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ─── Add / Edit form dialog ──────────────────────────────────────────────────
 
@@ -55,110 +207,134 @@ interface CardFormDialogProps {
 function CardFormDialog({ open, onClose, initial }: CardFormDialogProps) {
   const createCard = useCreateCard();
   const updateCard = useUpdateCard();
-
-  const [form, setForm] = useState<CreateCardPayload>({
-    cardName: initial?.cardName ?? "",
-    setName: initial?.setName ?? "",
-    cardNumber: initial?.cardNumber ?? "",
-    condition: initial?.condition ?? "Raw",
-    targetPrice: initial?.targetPrice ?? 0,
-  });
-
   const isEdit = !!initial;
+
+  // ── Add-mode state ────────────────────────────────────────────────────────
+  const [selected, setSelected] = useState<CatalogCard | null>(null);
+  const [variant, setVariant] = useState<string>(initial?.variant ?? "");
+
+  // When the user picks a new card, auto-pick the first available variant
+  useEffect(() => {
+    if (!selected) return;
+    if (selected.variants.length > 0 && !selected.variants.includes(variant)) {
+      setVariant(selected.variants[0]);
+    }
+  }, [selected, variant]);
+
+  // Available variants come from the picked card in add-mode, or are
+  // unknown in edit-mode (we don't have CatalogCard here). For edit we
+  // just let the user retype the variant string — rare case.
+  const availableVariants = selected?.variants ?? [];
+
   const isPending = createCard.isPending || updateCard.isPending;
+  const canSubmit = isEdit
+    ? !!variant
+    : !!selected && !!variant;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const payload = { ...form, targetPrice: Number(form.targetPrice) };
     if (isEdit) {
       updateCard.mutate(
-        { id: initial!.id, ...payload },
+        { id: initial!.id, variant },
         { onSuccess: onClose }
       );
-    } else {
-      createCard.mutate(payload, { onSuccess: onClose });
+    } else if (selected) {
+      createCard.mutate(
+        {
+          pokemonTcgId: selected.id,
+          variant,
+          cardName: selected.name,
+          setName: selected.setName,
+          cardNumber: selected.number,
+        },
+        { onSuccess: onClose }
+      );
     }
   }
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="bg-[#0f172a] border-slate-800 text-slate-100 max-w-md">
+      <DialogContent className="bg-[#0f172a] border-slate-800 text-slate-100 max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-white">
-            {isEdit ? "Edit Card" : "Add Card to Watchlist"}
+            {isEdit ? "Edit Variant" : "Add Card to Watchlist"}
           </DialogTitle>
         </DialogHeader>
+
         <form onSubmit={handleSubmit} className="space-y-4 mt-2">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-400">Card Name *</label>
-            <Input
-              required
-              placeholder="e.g. Charizard VMAX"
-              className="bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500"
-              value={form.cardName}
-              onChange={(e) => setForm((f) => ({ ...f, cardName: e.target.value }))}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-400">Set Name *</label>
-            <Input
-              required
-              placeholder="e.g. Darkness Ablaze"
-              className="bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500"
-              value={form.setName}
-              onChange={(e) => setForm((f) => ({ ...f, setName: e.target.value }))}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-400">Card Number</label>
-              <Input
-                placeholder="e.g. 020/189"
-                className="bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500"
-                value={form.cardNumber ?? ""}
-                onChange={(e) => setForm((f) => ({ ...f, cardNumber: e.target.value }))}
-              />
+          {/* Add mode: catalog picker. Edit mode: read-only card identity. */}
+          {isEdit ? (
+            <div className="rounded-lg border border-slate-800 bg-slate-800/40 p-3">
+              <p className="font-semibold text-slate-100 text-sm">
+                {initial!.cardName}{" "}
+                {initial!.cardNumber && (
+                  <span className="text-slate-500 font-normal">#{initial!.cardNumber}</span>
+                )}
+              </p>
+              <p className="text-xs text-slate-500 mt-0.5">{initial!.setName}</p>
+              <p className="text-[10px] text-slate-600 mt-1">
+                Card identity can&apos;t be changed — delete and re-add to track a
+                different card.
+              </p>
             </div>
+          ) : (
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-400">Condition *</label>
-              <Select
-                value={form.condition}
-                onValueChange={(v) => setForm((f) => ({ ...f, condition: v }))}
-              >
-                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-100">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-900 border-slate-700">
-                  {CONDITIONS.map((c) => (
-                    <SelectItem key={c} value={c}>{c}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <label className="text-xs font-medium text-slate-400">Card *</label>
+              <CatalogPicker selected={selected} onSelect={setSelected} />
             </div>
-          </div>
+          )}
+
+          {/* Variant picker */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-400">
-              Target Price (incl. shipping) *
-            </label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">
-                $
-              </span>
+            <label className="text-xs font-medium text-slate-400">Variant *</label>
+            {isEdit || availableVariants.length === 0 ? (
               <Input
                 required
-                type="number"
-                min="0.01"
-                step="0.01"
-                placeholder="0.00"
-                className="pl-7 bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500"
-                value={form.targetPrice || ""}
-                onChange={(e) => setForm((f) => ({ ...f, targetPrice: parseFloat(e.target.value) || 0 }))}
+                placeholder="e.g. normal, holofoil"
+                className="bg-slate-800 border-slate-700 text-slate-100 placeholder:text-slate-500"
+                value={variant}
+                onChange={(e) => setVariant(e.target.value)}
               />
-            </div>
+            ) : (
+              <Select value={variant} onValueChange={setVariant}>
+                <SelectTrigger className="bg-slate-800 border-slate-700 text-slate-100">
+                  <SelectValue placeholder="Choose a variant" />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-900 border-slate-700">
+                  {availableVariants.map((v) => {
+                    const market = selected!.variantPrices[v]?.market;
+                    return (
+                      <SelectItem key={v} value={v}>
+                        <span className="flex items-center gap-2">
+                          <span>{variantLabel(v)}</span>
+                          {market != null && (
+                            <span className="text-[#F5C518] text-xs">
+                              {formatCurrency(market)}
+                            </span>
+                          )}
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            )}
             <p className="text-[10px] text-slate-500">
-              Max total cost you'll pay, including shipping.
+              Drives the TCGPlayer market price the deal engine compares against
+              AND the keyword appended to eBay searches.
             </p>
           </div>
+
+          <div className="rounded-lg border border-slate-800 bg-slate-800/40 px-3 py-2.5">
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              <Check className="inline h-3 w-3 mr-1 text-[#F5C518]" />
+              <span className="text-[#F5C518] font-medium">Market price</span>{" "}
+              comes from TCGPlayer (via pokemontcg.io). Alerts fire when an eBay
+              listing&apos;s total cost falls at or below the variant&apos;s
+              market price.
+            </p>
+          </div>
+
           <DialogFooter className="mt-2">
             <Button
               type="button"
@@ -170,8 +346,8 @@ function CardFormDialog({ open, onClose, initial }: CardFormDialogProps) {
             </Button>
             <Button
               type="submit"
-              disabled={isPending}
-              className="bg-[#F5C518] text-slate-900 hover:bg-[#f0ba00] font-semibold"
+              disabled={!canSubmit || isPending}
+              className="bg-[#F5C518] text-slate-900 hover:bg-[#f0ba00] font-semibold disabled:opacity-50"
             >
               {isPending ? "Saving…" : isEdit ? "Save Changes" : "Add Card"}
             </Button>
@@ -198,16 +374,23 @@ function CardTile({
   const refreshListings = useRefreshListings(card.id);
   const [expanded, setExpanded] = useState(false);
 
-  // Best listing from the included listings array
   const bestListing = card.listings?.[0];
+  const targetPrice = getMarketForVariant(card.priceCache, card.variant);
   const marketPrice =
-    bestListing?.marketPrice ??
-    (card.priceCache
-      ? Number(card.priceCache.loosePrice) || Number(card.priceCache.gradedPrice) || null
-      : null);
+    bestListing != null
+      ? Number(bestListing.marketPrice)
+      : targetPrice;
 
   const atTarget =
-    bestListing != null && Number(bestListing.totalCost) <= card.targetPrice;
+    bestListing != null &&
+    targetPrice != null &&
+    Number(bestListing.totalCost) <= targetPrice;
+
+  // For the expandable "TCGPlayer prices" section, show all available variants
+  const allVariantEntries = useMemo(() => {
+    if (!card.priceCache?.variants) return [];
+    return Object.entries(card.priceCache.variants);
+  }, [card.priceCache]);
 
   return (
     <div
@@ -230,7 +413,7 @@ function CardTile({
             {card.cardNumber && ` · #${card.cardNumber}`}
           </p>
           <Badge className="mt-1.5 text-[10px] bg-slate-800 text-slate-400 border border-slate-700">
-            {card.condition}
+            {variantLabel(card.variant)}
           </Badge>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -265,8 +448,12 @@ function CardTile({
       {/* Prices */}
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div className="rounded-lg bg-slate-800/60 px-3 py-2">
-          <p className="text-slate-500 text-[10px] uppercase tracking-wide">Target</p>
-          <p className="font-semibold text-[#F5C518] mt-0.5">{formatCurrency(card.targetPrice)}</p>
+          <p className="text-slate-500 text-[10px] uppercase tracking-wide">
+            Target ({variantLabel(card.variant)})
+          </p>
+          <p className="font-semibold text-[#F5C518] mt-0.5">
+            {targetPrice != null ? formatCurrency(targetPrice) : "—"}
+          </p>
         </div>
         <div className="rounded-lg bg-slate-800/60 px-3 py-2">
           <p className="text-slate-500 text-[10px] uppercase tracking-wide">Market</p>
@@ -290,7 +477,7 @@ function CardTile({
           />
           {atTarget && (
             <Badge className="text-[10px] w-full justify-center bg-emerald-900/40 text-emerald-400 border border-emerald-700/40">
-              ✓ At or below your target price
+              ✓ At or below market price
             </Badge>
           )}
         </div>
@@ -300,29 +487,26 @@ function CardTile({
         </div>
       )}
 
-      {/* Price cache details (expandable) */}
-      {card.priceCache && (
+      {/* TCGPlayer prices (expandable) */}
+      {allVariantEntries.length > 0 && (
         <button
           className="flex items-center gap-1 text-[10px] text-slate-600 hover:text-slate-400 transition-colors"
           onClick={() => setExpanded((v) => !v)}
         >
           <TrendingUp className="h-3 w-3" />
-          PriceCharting data
+          TCGPlayer prices
           <ChevronDown className={`h-3 w-3 transition-transform ${expanded ? "rotate-180" : ""}`} />
         </button>
       )}
-      {expanded && card.priceCache && (
+      {expanded && (
         <div className="grid grid-cols-2 gap-1.5 text-[10px]">
-          {[
-            ["Loose", card.priceCache.loosePrice],
-            ["CIB", card.priceCache.cibPrice],
-            ["New", card.priceCache.newPrice],
-            ["Graded", card.priceCache.gradedPrice],
-          ].map(([label, val]) =>
-            val != null ? (
-              <div key={label as string} className="flex justify-between rounded bg-slate-800/40 px-2 py-1">
-                <span className="text-slate-500">{label}</span>
-                <span className="text-slate-300 font-medium">{formatCurrency(Number(val))}</span>
+          {allVariantEntries.map(([key, prices]) =>
+            prices.market != null ? (
+              <div key={key} className="flex justify-between rounded bg-slate-800/40 px-2 py-1">
+                <span className="text-slate-500">{variantLabel(key)}</span>
+                <span className="text-slate-300 font-medium">
+                  {formatCurrency(Number(prices.market))}
+                </span>
               </div>
             ) : null
           )}

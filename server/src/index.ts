@@ -7,7 +7,13 @@ import { cardsRouter } from "./routes/cards.js";
 import { listingsRouter } from "./routes/listings.js";
 import { pricesRouter } from "./routes/prices.js";
 import { authRouter } from "./routes/auth.js";
+import { catalogRouter } from "./routes/catalog.js";
+import { ebayDeletionRouter } from "./routes/ebayDeletion.js";
+import { alertsRouter } from "./routes/alerts.js";
+import { lotsRouter } from "./routes/lots.js";
 import { startRefreshJob } from "./jobs/refreshListings.js";
+import { startSnapshotJob } from "./jobs/snapshotPrices.js";
+import { startSyncCatalogJob } from "./jobs/syncCatalog.js";
 import { prisma } from "./db.js";
 
 const app = express();
@@ -25,9 +31,16 @@ app.use(express.urlencoded({ extended: true }));
 // ── Routes ────────────────────────────────────────────────────────────────────
 app.use("/api/health", healthRouter);
 app.use("/api/auth", authRouter);
+app.use("/api/catalog", catalogRouter);
 app.use("/api/cards", cardsRouter);
 app.use("/api/listings", listingsRouter);
 app.use("/api/prices", pricesRouter);
+app.use("/api/alerts", alertsRouter);
+app.use("/api/lots", lotsRouter);
+
+// eBay Marketplace Account Deletion webhook — NOT under /api so the URL
+// stays stable and clearly distinct from the app's own JSON API.
+app.use("/ebay/account-deletion", ebayDeletionRouter);
 
 // ── Global error handler — must be last ───────────────────────────────────────
 app.use(errorHandler);
@@ -38,9 +51,15 @@ async function main() {
   await prisma.$connect();
   console.log("✅  Database connected");
 
-  // Start background cron job (runs every 30 min)
+  // Start background cron jobs:
+  //   - listing refresh every 30 min (fresh eBay data)
+  //   - price snapshot daily at 00:05 UTC (builds the chart history)
   startRefreshJob();
   console.log("⏰  Listing refresh job scheduled");
+  startSnapshotJob();
+  console.log("📈  Daily price snapshot job scheduled");
+  startSyncCatalogJob();
+  console.log("📚  Weekly catalog sync job scheduled");
 
   app.listen(config.PORT, () => {
     console.log(`🚀  Server running on port ${config.PORT} [${config.NODE_ENV}]`);
