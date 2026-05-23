@@ -40,3 +40,7 @@ coverage/
 # Session recap notes — may include credentials echoed in chat transcripts
 SESSION_RECAP.md
 SESSION_RECAP_*.md
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+.beads-credential-key
