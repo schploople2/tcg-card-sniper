@@ -569,7 +569,7 @@ function AddedRow({ entry, catalogIndex, onInc, onDec, onRemove }: AddedRowProps
   );
 }
 
-interface SuggestionChipProps {
+export interface SuggestionChipProps {
   suggestion: LotSuggestion;
   accepted: boolean;
   /** The cardId currently picked for this suggestion (if any), so the picker
@@ -597,7 +597,7 @@ interface SuggestionChipProps {
  * Suggestions with zero catalog candidates (model hallucinated a name we
  * don't recognise) are rendered greyed-out and non-actionable.
  */
-function SuggestionChip({
+export function SuggestionChip({
   suggestion,
   accepted,
   currentCardId,
