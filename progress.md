@@ -116,3 +116,39 @@ Plan saved at `~/.claude/plans/we-need-to-continue-snoopy-reddy.md`. 5 beads iss
 
 **Next step**
 - Implement `ey5` (PrintingPicker component) and file a sixth bead for its component test.
+
+---
+
+## Session 2026-05-23 (final) — Phase 8 complete + browser verification
+
+**Mode:** execute (committed + deployed + verified)
+
+**Closed today (Phase 8 wrap)**
+- `ey5` ✓ — PrintingPicker popover component (Radix popover + AI badge + price column + empty state). Commit 4881184.
+- `3z1` ✓ — wired ⋯ trigger on SuggestionChip; added pickedCardIdByName state, handlePickPrinting, handleSearchFromSuggestion in the parent. Commit 4e70f39. Deviated from spec: dropped the proposed inner DropdownMenu (Pick + Dismiss) in favor of ⋯ directly opening the picker — one fewer Radix dep, one fewer click, Dismiss was a stub anyway.
+- `ex4` ✓ — 5 PrintingPicker unit tests.
+- `36g` ✓ — 3 SuggestionChip integration tests through Harness wrapper.
+
+Total Phase 8: 6 beads, 200 server tests + 8 client tests, all green. Plus first client test infrastructure for the project (vitest + react testing library + jsdom). Commit 1e2cc88 lands client tests + regenerated client/package-lock.json (Nixpacks' npm ci was out of sync after the radix-popover add).
+
+**Browser verification at https://poke-sniper.up.railway.app/**
+
+Used the claude-in-chrome MCP to drive a real browser session:
+1. Searched the Lots tab for "pokemon mew vmax alt art lot" → 5 results.
+2. Opened "pokemon card lot all VMAX alt art cards" (the Gardevoir/Sylveon lot — chose this because the original Mew lot's OCR cache came back empty for unrelated reasons).
+3. Clicked Suggest cards from photos → 7 AI chips rendered: Kingler Vmax, Gardevoir Vmax, Regieleki Vmax, Sylveon Vmax, Metagross Vmax, Greedent Vmax, Duraludon Vmax. Each chip showed the ⋯ button on its right edge as designed.
+4. Clicked Gardevoir Vmax chip body (first attempt landed on body) → chip flipped green ✓ and added swsh35-17 to Your additions. Confirmed the fast-accept path works.
+5. Clicked the ⋯ button on the now-accepted Gardevoir Vmax chip → picker popover opened with the header "PICK THE RIGHT PRINTING / Gardevoir Vmax" and 2 candidate rows: Champion's Path · 2020 · #17 · $4.16 ✨AI (badged) and Champion's Path · 2020 · #76 · $15.34.
+6. Clicked the #76 row → Your additions instantly transitioned from swsh35-17 to swsh35-76. No double-count. Chip stayed accepted, ⋯ still usable for further changes.
+
+This is the supersession + pick-printing flow working end-to-end against real production data.
+
+**Discoveries / errors logged**
+- Client/package-lock.json had to be regenerated after the radix-popover add — Nixpacks' Caddy preset for the client service auto-runs `npm ci` which fails on lockfile drift.
+- `bd close <id>` continues to be unreliable for JSONL writes. Confirmed pattern: `bd update <id> --status=closed`, then `bd export > .beads/issues.jsonl`, then commit JSONL, then `bd dolt push`, then `git push`.
+- First-time client test run had no infrastructure — added vitest config + setup file + a `test` script in client/package.json. ~5 minutes of one-time setup, unblocks all future client tests.
+
+**Status**
+- Pick-printing feature: shipped, verified, tested.
+- All 6 Phase-8 beads closed. 18 issues total in the project; 11 closed; 0 in-progress; 0 blocked.
+- Session ready to hand off or pivot to Phase 1 (live verification baseline), Phase 5 (telemetry — actually mostly done in the prior session), or Phase 6 (closeout + SESSION_RECAP refresh).

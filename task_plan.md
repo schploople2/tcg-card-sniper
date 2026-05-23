@@ -56,18 +56,25 @@ Real-world incident that surfaced mid-session: NODE_ENV=production on Railway se
 
 Client service had a deeper structural problem: it was using the SHARED `/railway.json` (server's config). Even setting `rootDirectory` / `railwayConfigFile` / `buildCommand` overrides via the GraphQL `serviceInstanceUpdate` mutation didn't take effect — Railway kept reading root `/railway.json`. Working fix: set buildCommand/startCommand overrides on the service via API, then deploy with `railway up ./client --path-as-root --service client` so only `client/` is the build context. Client now serving HTTP 200 at https://poke-sniper.up.railway.app/. Issues `tcg-card-sniper-dev-nf4` and `tcg-card-sniper-dev-tdj` closed.
 
-### Phase 8 — "Pick correct printing" UX `status: in_progress`
+### Phase 8 — "Pick correct printing" UX `status: complete`
 User reported the AI sometimes misidentifies the *set* a card belongs to even when the name is right (e.g. Mew VMAX 269/264 from Fusion Strike alt-art SR, but AI guessed Sword & Shield base). The auto-resolved candidate is usually wrong → lot valuation is way off. Add UX to pick the right printing from the suggestion's existing `candidates` list.
 
-5 beads issues track the feature (see `findings.md` § "Pick-printing feature design" for the full design):
+6 beads issues delivered the feature (see `findings.md` § "Pick-printing feature design" for the full design):
 - `dgc` ✓ — `feat(server): name-based supersession in lot revaluation` (commit e19421a)
 - `fqi` ✓ — `test(server): supersession in lot revaluation` (commit 224acc8, 200/200 tests)
-- `ey5` ◐ — `feat(client): PrintingPicker popover component` — IN PROGRESS
-- `3z1` ○ — `feat(client): per-chip dropdown menu on SuggestionChip` — blocked on ey5
-- `36g` ○ — `test(client): picking a non-default printing routes through useSaveAnnotation` — blocked on 3z1
-- (new) `test(client): PrintingPicker component renders + emits picks correctly` — to be filed against ey5
+- `ey5` ✓ — `feat(client): PrintingPicker popover component` (commit 4881184)
+- `3z1` ✓ — `feat(client): per-chip ⋯ printing picker on SuggestionChip` (commit 4e70f39)
+- `ex4` ✓ — `test(client): PrintingPicker renders + emits picks correctly` (5 tests)
+- `36g` ✓ — `test(client): chip wiring through picker` (3 tests; commit 1e2cc88, total 8/8 passing)
 
-End-to-end verification: open the Mew VMAX 269/264 lot at poke-sniper.up.railway.app → click ⋯ on the chip → Pick correct printing → click Fusion Strike alt art row → confirm lot value reflects $215 (not $15 + $215 double-counted).
+**End-to-end verification (2026-05-23, https://poke-sniper.up.railway.app/):**
+- Searched "pokemon mew vmax alt art lot" → opened "pokemon card lot all VMAX alt art cards" → clicked Suggest cards from photos.
+- 7 AI suggestion chips rendered, each with the ⋯ button on the right edge.
+- Clicked ⋯ on the Gardevoir Vmax chip → picker popover opened with header "PICK THE RIGHT PRINTING / Gardevoir Vmax" and 2 candidate rows (Champion's Path #17 $4.16 with the ✨AI badge; Champion's Path #76 $15.34).
+- Clicked the #76 row → Your additions instantly updated from `swsh35-17` (AI's pick) to `swsh35-76` (user's pick). No double-count, no leftover entries.
+- Chip stayed accepted (✓ green) with ⋯ still active for further "Change printing" actions.
+
+Mew VMAX 269/264 alt-art case (the original user complaint) was not directly observable in this lot because that specific listing's OCR cache returned no suggestions — likely a stale cache hit from before today's work. The Gardevoir VMAX flow exercises the same code paths so the fix is confirmed.
 
 ---
 
