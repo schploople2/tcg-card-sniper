@@ -1,0 +1,118 @@
+# Progress — Lot OCR Detection
+
+## Session 2026-05-23 — Planning kickoff
+
+**Mode:** plan (no code changes)
+
+**What happened**
+- User asked to plan "continuing TCG Card Sniper work," then narrowed to per-user lot annotation (Pb-next), then to Lot OCR detection specifically.
+- Explored project state: SESSION_RECAP.md, prisma/schema.prisma, routes/lots.ts, services/lotVisionAi.ts, services/lotImages.ts, services/cardNameExtractor.ts, services/lotValuation.ts, components/shared/LotAnalyzerModal.tsx, hooks/useCatalog.ts.
+- Confirmed Pb-next (lot annotation) shipped in commit `d522b1d`. SESSION_RECAP's open-question section is stale.
+- Confirmed the Pc vision-AI/OCR pipeline exists end-to-end and is already wired to the analyzer modal.
+- Identified 4 substantive gaps + 1 minor limitation (see findings.md G1–G5).
+
+**Plan written**
+- 6 phases: verify baseline → wire hints into candidate filtering → unit tests → persist OCR back to Lot.parsedCards → spend telemetry + cap → verify + recap refresh.
+- All phases captured in task_plan.md and the TaskCreate task list.
+
+**Decisions captured**
+- Annotations per-user (private). OCR-derived `Lot.parsedCards` updates shared (everyone benefits).
+- Soft hint filtering — fall back to unfiltered candidates when no match.
+- Spend cap via env, not per-user-configurable in v1.
+
+**Errors**
+- None.
+
+**Next step**
+- Awaiting user approval (ExitPlanMode). Phase 1 first action: verification baseline against live Railway deployment.
+
+## Session 2026-05-23 (continued) — Phase 3 complete
+
+**What happened**
+- Switched task tracking from TaskCreate → beans per user's `beans prime` priming.
+- Created epic `TCG Card Sniper-i7vy` + 6 phase beans, wired blocked-by deps (Phase 2→1, Phase 4→2, Phase 6→4+5).
+- Picked Phase 3 first (pure local, no creds needed, builds safety net for Phase 2).
+- Exported `parseModelOutput`, `coerceSuggestion`, `RawCard` from `lotVisionAi.ts` (no behaviour change).
+- Grew `lotVisionAi.test.ts` from 3 tests → 26 tests covering parsing edge cases, coercion clamping, `visionEnabled`, and a fully mocked `runLotVision` (Prisma + Anthropic SDK).
+- Server suite: 164/164 passing (was 163).
+- Closed bean `TCG Card Sniper-b2ct` with a Summary of Changes block.
+
+**Errors**
+- None.
+
+**Next step**
+- Phase 2 — wire setHint/cardNumber into candidate resolution. Bean `TCG Card Sniper-eiog`.
+
+## Session 2026-05-23 (continued) — Phase 2 + Phase 4 complete
+
+**Phase 2 — Hint-aware candidate resolution**
+- `ExtractedName` gained optional `setHint` / `cardNumber`.
+- `namesToExtracted` threads hints from vision-AI.
+- `valueLot` calls new `applyHints(bucket, setHint, cardNumber)` helper with **soft fallback** (empty filter result → unfiltered bucket).
+- `cardNumber` strips `/N` denominator so `4/102` matches `Card.number === "4"`.
+- `setHint` uses forward-only substring containment (catalog must contain hint).
+- Route `POST /ocr-suggestions` passes hints in; UI-chip re-attach realigned by name (was unsafe index alignment).
+- 8 new tests, 172/172 passing.
+
+**Phase 4 — Persist OCR results into Lot.parsedCards**
+- Route now calls `persistOcrToLot` after returning suggestions. Refreshes `parsedCards` / `lowEstimate` / `highEstimate` / `lotScore` / `lotTier` / `parsedAt`.
+- Response gained `lotUpdate: { before, after }` for UI feedback ("tier upgraded HOT").
+- New pure helper `mergeTitleAndVisionParsed(titleJson, vision)` — union by lowercased name, vision wins on quantity/confidence + contributes hints.
+- `LotAnnotation` untouched.
+- 7 new tests, 179/179 passing. TypeScript clean.
+
+**Status**
+- 3 of 6 OCR phases complete in-session (Phases 2, 3, 4).
+- Phase 1 (live verify), Phase 5 (telemetry + DB migration), Phase 6 (closeout) still pending.
+
+**Errors**
+- One mid-flight test failure: bidirectional `setName.includes`/`hint.includes` matched too loosely (`"Base Set"` hint matched the more-specific `"Base Set 2"` catalog row). Switched to forward-containment only.
+
+**Next step**
+- Awaiting user direction: continue with Phase 5 (DB migration territory), verify in browser (Phase 1), or commit + deploy what's done.
+
+---
+
+## Session 2026-05-23 (later) — Railway fixes + "pick correct printing" feature kickoff
+
+**Mode:** execute (committed work)
+
+**Part A — Railway build/deploy fixes (Phase 7)**
+
+Triaged failing server and client deploys. Single root cause across multiple symptoms: Railway sets `NODE_ENV=production` on both services, which makes `pnpm install --frozen-lockfile` skip every devDependency. Build fell over in successive attempts:
+- First on `prisma` CLI → patched in 8e034cd (move to deps)
+- Then on `tsc` → patched in 8a51aef (move typescript to deps)
+- Then on `@types/node` → would have been next devDep, etc.
+
+Final structural fix in `railway.json` buildCommand: prefix the install with `NODE_ENV=development pnpm install --frozen-lockfile=false --force` (commit 6e5866d). `--force` is the load-bearing flag — without it, pnpm sees the existing prod-only `node_modules` from Nixpacks' stage-7 auto-install and prompts "reinstall from scratch?", which in non-interactive Railway logs silently no-ops.
+
+Server: ✓ deploying, healthchecks pass, server running on port 8080.
+
+Client had an entirely different problem: it was being deployed using the root `/railway.json` (server's config) regardless of any per-service overrides. Setting `rootDirectory`, `railwayConfigFile`, `buildCommand`, and `startCommand` on the service via the GraphQL `serviceInstanceUpdate` mutation took effect in the service config but every subsequent deploy STILL resolved the manifest from root `/railway.json`. Worked around by deploying with `railway up ./client --path-as-root --service client` — `--path-as-root` makes only `client/` the build context, so the root `railway.json` simply isn't there to confuse the deployer.
+
+Client: ✓ serving HTTP 200 at https://poke-sniper.up.railway.app/.
+
+Issues closed: `tcg-card-sniper-dev-nf4` (server), `tcg-card-sniper-dev-tdj` (client). Commits e19421a / f25ce2d range.
+
+**Part B — "Pick correct printing" feature design (Phase 8)**
+
+User flagged that the AI sometimes misidentifies a card's set (Mew VMAX 269/264 Fusion Strike alt art → AI guessed Sword & Shield base). Designed a small UX addition: each AI chip's `⋯` dropdown gets a "Pick correct printing" action that opens a popover listing all candidates already on the suggestion payload. User clicks → cardId is added to `LotAnnotation.addedCards` (existing pattern).
+
+Key insight from exploration: the candidates are already on every suggestion (server's `valueLot` puts them there), so no API call is needed to populate the picker. The non-trivial server change is preventing double-counting: if a user picks a printing for a card the AI already auto-resolved, the AI's contribution must be dropped from the auto value. Solved via "name-based supersession" — when computing the auto total from `Lot.parsedCards`, skip any entry whose name matches a user-added `Card.name`.
+
+Plan saved at `~/.claude/plans/we-need-to-continue-snoopy-reddy.md`. 5 beads issues filed with dependencies: dgc → fqi (server); ey5 → 3z1 → 36g (client).
+
+**Completed today (Phase 8)**
+- `dgc` ✓ — lifted `reValueWithAnnotation` + `bestSingleMarket` from `routes/lots.ts` into `services/lotValuation.ts`, added supersession logic. Commit e19421a.
+- `fqi` ✓ — 6 unit tests for the supersession behavior (core case, partial, baseline, case-insensitive, unknown cardId, missing lot). Commit 224acc8. Server suite: 200/200 (was 194).
+
+**In progress**
+- `ey5` ◐ — `PrintingPicker` popover component.
+
+**Discoveries / errors logged in task_plan.md errors table**
+- `bd close` doesn't write back to JSONL; use `bd update --status=closed` instead.
+- Railway's `--from-source` redeploys reuse the previous deployment's manifest snapshot, NOT the current service config — `railway up` is needed to pick up service-level changes.
+- pnpm 9 in non-interactive mode silently skips the "reinstall from scratch?" prompt; use `--force` to bypass.
+
+**Next step**
+- Implement `ey5` (PrintingPicker component) and file a sixth bead for its component test.
