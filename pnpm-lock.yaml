@@ -11,13 +11,13 @@ importers:
       '@prisma/client':
         specifier: 5.22.0
         version: 5.22.0(prisma@5.22.0)
+      prisma:
+        specifier: ^5.14.0
+        version: 5.22.0
     devDependencies:
       concurrently:
         specifier: ^8.2.2
         version: 8.2.2
-      prisma:
-        specifier: ^5.14.0
-        version: 5.22.0
 
   client:
     dependencies:

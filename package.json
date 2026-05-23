@@ -12,10 +12,10 @@
     "db:studio": "prisma studio"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2",
-    "prisma": "^5.14.0"
+    "concurrently": "^8.2.2"
   },
   "dependencies": {
-    "@prisma/client": "5.22.0"
+    "@prisma/client": "5.22.0",
+    "prisma": "^5.14.0"
   }
 }
