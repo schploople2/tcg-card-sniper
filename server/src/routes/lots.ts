@@ -6,7 +6,12 @@ import { requireAuth } from "../middleware/auth.js";
 import { AppError } from "../middleware/errorHandler.js";
 import { extractCards, namesToExtracted } from "../services/cardNameExtractor.js";
 import { detectLotShape } from "../services/lotDetection.js";
-import { scoreLot, valueLot, mergeTitleAndVisionParsed } from "../services/lotValuation.js";
+import {
+  scoreLot,
+  valueLot,
+  mergeTitleAndVisionParsed,
+  reValueWithAnnotation,
+} from "../services/lotValuation.js";
 import { searchEbayLots } from "../services/ebay.js";
 import { getLotImages } from "../services/lotImages.js";
 import {
@@ -551,115 +556,3 @@ lotsRouter.get("/:ebayItemId/images", async (req, res, next) => {
   }
 });
 
-/**
- * Compute a fresh value range that overlays user-added cards onto the
- * lot's existing auto-parsed cards. The Lot row's own `lowEstimate` and
- * `highEstimate` are *not* mutated — those reflect what the auto-extractor
- * believes. The revaluation here is the union and is returned alongside,
- * so the UI can render both numbers ("auto says X, with your additions Y").
- */
-async function reValueWithAnnotation(
-  ebayItemId: string,
-  addedCards: Array<{ cardId: string; quantity: number; note?: string }>
-): Promise<{
-  autoLowEstimate: number;
-  autoHighEstimate: number;
-  withAnnotationLowEstimate: number;
-  withAnnotationHighEstimate: number;
-  addedCardSummaries: Array<{
-    cardId: string;
-    name: string;
-    setName: string;
-    number: string;
-    market: number | null;
-    quantity: number;
-    note: string | null;
-  }>;
-}> {
-  const lot = await prisma.lot.findUnique({ where: { ebayItemId } });
-  const autoLow = lot ? Number(lot.lowEstimate) : 0;
-  const autoHigh = lot ? Number(lot.highEstimate) : 0;
-
-  // Look up each added card and its best market price.
-  const addedIds = [...new Set(addedCards.map((c) => c.cardId))];
-  const cardRows = addedIds.length === 0
-    ? []
-    : await prisma.card.findMany({
-        where: { id: { in: addedIds } },
-        select: {
-          id: true,
-          name: true,
-          number: true,
-          setName: true,
-          tcgplayerPrices: true,
-          cardmarketPrices: true,
-        },
-      });
-  const byId = new Map(cardRows.map((c) => [c.id, c]));
-
-  let addedValue = 0;
-  const addedCardSummaries = addedCards.map((entry) => {
-    const card = byId.get(entry.cardId);
-    if (!card) {
-      return {
-        cardId: entry.cardId,
-        name: "(unknown)",
-        setName: "—",
-        number: "—",
-        market: null,
-        quantity: entry.quantity,
-        note: entry.note ?? null,
-      };
-    }
-    const market = bestSingleMarket(card.tcgplayerPrices, card.cardmarketPrices);
-    if (market != null) addedValue += market * entry.quantity;
-    return {
-      cardId: card.id,
-      name: card.name,
-      setName: card.setName,
-      number: card.number,
-      market,
-      quantity: entry.quantity,
-      note: entry.note ?? null,
-    };
-  });
-
-  return {
-    autoLowEstimate: autoLow,
-    autoHighEstimate: autoHigh,
-    // User additions are deterministic (no candidate range — they picked
-    // the exact printing), so they contribute equally to low and high.
-    withAnnotationLowEstimate: round(autoLow + addedValue),
-    withAnnotationHighEstimate: round(autoHigh + addedValue),
-    addedCardSummaries,
-  };
-}
-
-interface TcgVariants {
-  [variant: string]: { market?: number | null } | undefined;
-}
-interface CardmarketShape {
-  trendPrice?: number | null;
-  averageSellPrice?: number | null;
-}
-
-function bestSingleMarket(
-  tcgplayer: unknown,
-  cardmarket: unknown
-): number | null {
-  if (tcgplayer && typeof tcgplayer === "object") {
-    const prices = Object.values(tcgplayer as TcgVariants)
-      .map((v) => v?.market ?? null)
-      .filter((m): m is number => m != null && m > 0);
-    if (prices.length > 0) return Math.max(...prices);
-  }
-  if (cardmarket && typeof cardmarket === "object") {
-    const cm = cardmarket as CardmarketShape;
-    return cm.trendPrice ?? cm.averageSellPrice ?? null;
-  }
-  return null;
-}
-
-function round(n: number): number {
-  return Math.round(n * 100) / 100;
-}

@@ -328,3 +328,167 @@ export function applyHints<T extends CardForHint>(
 
   return filtered.length > 0 ? filtered : bucket;
 }
+
+// ─── Annotation revaluation ───────────────────────────────────────────────────
+
+interface TcgVariants {
+  [variant: string]: { market?: number | null } | undefined;
+}
+interface CardmarketShape {
+  trendPrice?: number | null;
+  averageSellPrice?: number | null;
+}
+
+/**
+ * Pick a single representative market price for a card from its TCGPlayer
+ * variant map (preferred) or Cardmarket aggregates (fallback). When TCGPlayer
+ * has multiple variants we take the max — that's the "headline" price a buyer
+ * would see, not an average across variants of wildly different rarity.
+ */
+export function bestSingleMarket(
+  tcgplayer: unknown,
+  cardmarket: unknown
+): number | null {
+  if (tcgplayer && typeof tcgplayer === "object") {
+    const prices = Object.values(tcgplayer as TcgVariants)
+      .map((v) => v?.market ?? null)
+      .filter((m): m is number => m != null && m > 0);
+    if (prices.length > 0) return Math.max(...prices);
+  }
+  if (cardmarket && typeof cardmarket === "object") {
+    const cm = cardmarket as CardmarketShape;
+    return cm.trendPrice ?? cm.averageSellPrice ?? null;
+  }
+  return null;
+}
+
+export interface AddedCardSummary {
+  cardId: string;
+  name: string;
+  setName: string;
+  number: string;
+  market: number | null;
+  quantity: number;
+  note: string | null;
+}
+
+export interface AnnotationRevaluation {
+  autoLowEstimate: number;
+  autoHighEstimate: number;
+  withAnnotationLowEstimate: number;
+  withAnnotationHighEstimate: number;
+  addedCardSummaries: AddedCardSummary[];
+}
+
+/**
+ * Recompute a lot's value range with user annotations overlaid.
+ *
+ * The auto contribution is recomputed from `Lot.parsedCards` rather than
+ * reading the cached `lot.lowEstimate`/`highEstimate` scalars. This lets us
+ * apply *name-based supersession*: when the user has added a card whose
+ * `Card.name` matches the name of an AI-parsed suggestion, the AI's
+ * contribution is dropped so we don't double-count. The user explicitly
+ * picked the right printing — their pick replaces the AI's guess.
+ *
+ * The lot row's stored `lowEstimate`/`highEstimate` are *not* mutated.
+ * Those still reflect the auto-extractor's headline view. The numbers
+ * returned here are the per-request "with your additions" overlay.
+ */
+export async function reValueWithAnnotation(
+  ebayItemId: string,
+  addedCards: Array<{ cardId: string; quantity: number; note?: string }>
+): Promise<AnnotationRevaluation> {
+  const lot = await prisma.lot.findUnique({ where: { ebayItemId } });
+
+  // Look up each added card and its best market price first — we need the
+  // resolved Card.name values to know which AI-parsed names to supersede.
+  const addedIds = [...new Set(addedCards.map((c) => c.cardId))];
+  const cardRows =
+    addedIds.length === 0
+      ? []
+      : await prisma.card.findMany({
+          where: { id: { in: addedIds } },
+          select: {
+            id: true,
+            name: true,
+            number: true,
+            setName: true,
+            tcgplayerPrices: true,
+            cardmarketPrices: true,
+          },
+        });
+  const byId = new Map(cardRows.map((c) => [c.id, c]));
+
+  const supersededNames = new Set<string>();
+  for (const c of cardRows) supersededNames.add(c.name.trim().toLowerCase());
+
+  // Recompute auto totals from parsedCards JSON, skipping superseded names.
+  // Shape is ParsedLotCard[] but stored as JSON, so be defensive.
+  interface MinimalParsedCard {
+    name?: unknown;
+    quantity?: unknown;
+    candidates?: unknown;
+  }
+  interface MinimalCandidate {
+    market?: unknown;
+  }
+  const parsed: MinimalParsedCard[] = Array.isArray(lot?.parsedCards)
+    ? (lot.parsedCards as MinimalParsedCard[])
+    : [];
+
+  let autoLow = 0;
+  let autoHigh = 0;
+  for (const entry of parsed) {
+    if (typeof entry.name !== "string") continue;
+    if (supersededNames.has(entry.name.trim().toLowerCase())) continue;
+    const qty =
+      typeof entry.quantity === "number" && entry.quantity > 0
+        ? entry.quantity
+        : 1;
+    const markets: number[] = (
+      Array.isArray(entry.candidates) ? (entry.candidates as MinimalCandidate[]) : []
+    )
+      .map((c) => (typeof c.market === "number" && c.market > 0 ? c.market : null))
+      .filter((m): m is number => m != null);
+    if (markets.length === 0) continue;
+    autoLow += Math.min(...markets) * qty;
+    autoHigh += Math.max(...markets) * qty;
+  }
+
+  let addedValue = 0;
+  const addedCardSummaries: AddedCardSummary[] = addedCards.map((entry) => {
+    const card = byId.get(entry.cardId);
+    if (!card) {
+      return {
+        cardId: entry.cardId,
+        name: "(unknown)",
+        setName: "—",
+        number: "—",
+        market: null,
+        quantity: entry.quantity,
+        note: entry.note ?? null,
+      };
+    }
+    const market = bestSingleMarket(card.tcgplayerPrices, card.cardmarketPrices);
+    if (market != null) addedValue += market * entry.quantity;
+    return {
+      cardId: card.id,
+      name: card.name,
+      setName: card.setName,
+      number: card.number,
+      market,
+      quantity: entry.quantity,
+      note: entry.note ?? null,
+    };
+  });
+
+  return {
+    autoLowEstimate: round(autoLow),
+    autoHighEstimate: round(autoHigh),
+    // User additions are deterministic (the user picked a specific printing),
+    // so they contribute the same value to low and high.
+    withAnnotationLowEstimate: round(autoLow + addedValue),
+    withAnnotationHighEstimate: round(autoHigh + addedValue),
+    addedCardSummaries,
+  };
+}
