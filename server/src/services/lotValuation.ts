@@ -104,7 +104,12 @@ export async function valueLot(
   let pricedNameCount = 0;
 
   const parsedCards: ParsedLotCard[] = extracted.map((e) => {
-    const bucket = cardsByName.get(e.name.toLowerCase()) ?? [];
+    const fullBucket = cardsByName.get(e.name.toLowerCase()) ?? [];
+    // Soft filter: when the upstream source (vision-AI) supplied a setHint
+    // and/or cardNumber, prefer candidates that match. If filtering empties
+    // the list we fall back to the unfiltered bucket — better a wide list
+    // than no candidates at all when the hint is slightly off.
+    const bucket = applyHints(fullBucket, e.setHint, e.cardNumber);
 
     const candidates: CandidatePrinting[] = bucket.map((c) => {
       const { market, currency } = pickBestMarket({
@@ -212,4 +217,114 @@ function pickBestMarket(
 
 function round(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/**
+ * Merge a Lot's title-extracted `parsedCards` JSON with a set of vision-AI
+ * suggestions, producing the input shape `namesToExtracted` consumes.
+ *
+ * Rule: union by lowercased name. When the same card appears in both, the
+ * vision reading wins on quantity / confidence and contributes the hints —
+ * the title already proved the card was mentioned; vision is more
+ * informative about how many and which printing.
+ *
+ * Pure function, so we can unit-test it without a Prisma mock.
+ */
+export interface VisionMergeInput {
+  name: string;
+  quantity: number;
+  confidence: number;
+  setHint?: string | null;
+  cardNumber?: string | null;
+}
+export interface MergedForRevaluation {
+  name: string;
+  quantity: number;
+  confidence: number;
+  setHint: string | null;
+  cardNumber: string | null;
+}
+export function mergeTitleAndVisionParsed(
+  titleParsedJson: unknown,
+  vision: VisionMergeInput[]
+): MergedForRevaluation[] {
+  interface MinimalParsed {
+    name?: unknown;
+    quantity?: unknown;
+    confidence?: unknown;
+  }
+  const titleParsed: MinimalParsed[] = Array.isArray(titleParsedJson)
+    ? (titleParsedJson as MinimalParsed[])
+    : [];
+
+  const byName = new Map<string, MergedForRevaluation>();
+  for (const t of titleParsed) {
+    if (typeof t.name !== "string") continue;
+    byName.set(t.name.toLowerCase(), {
+      name: t.name,
+      quantity: typeof t.quantity === "number" && t.quantity >= 1 ? t.quantity : 1,
+      confidence: typeof t.confidence === "number" ? t.confidence : 0.5,
+      setHint: null,
+      cardNumber: null,
+    });
+  }
+  for (const v of vision) {
+    const key = v.name.toLowerCase();
+    const existing = byName.get(key);
+    byName.set(key, {
+      name: v.name,
+      quantity: Math.max(existing?.quantity ?? 0, v.quantity),
+      confidence: Math.max(existing?.confidence ?? 0, v.confidence),
+      setHint: v.setHint ?? existing?.setHint ?? null,
+      cardNumber: v.cardNumber ?? existing?.cardNumber ?? null,
+    });
+  }
+  return [...byName.values()];
+}
+
+interface CardForHint {
+  number: string;
+  setName: string;
+}
+
+/**
+ * Narrow a candidate bucket using optional set / number hints from vision-AI.
+ *
+ * cardNumber compares exactly against `Card.number`. Vision often returns
+ * "4/102"-style numerator-over-denominator; we strip the denominator before
+ * comparing so "4/102" matches a card with number "4". Both raw and stripped
+ * forms are tried.
+ *
+ * setHint uses case-insensitive forward substring containment — the catalog
+ * set name must contain the hint. Vision-AI is generally verbose enough to
+ * use full set names, and forward-only avoids "Base Set" matching the more
+ * specific "Base Set 2".
+ *
+ * Both filters apply additively when both are present. If the combined
+ * filter empties the bucket we fall back to the unfiltered bucket (soft
+ * filter) so a slightly-off hint doesn't drop the card entirely.
+ */
+export function applyHints<T extends CardForHint>(
+  bucket: T[],
+  setHint: string | null | undefined,
+  cardNumber: string | null | undefined
+): T[] {
+  if (bucket.length === 0) return bucket;
+  if (!setHint && !cardNumber) return bucket;
+
+  const numStripped = cardNumber ? cardNumber.split("/")[0].trim() : null;
+  const hint = setHint ? setHint.trim().toLowerCase() : null;
+
+  const filtered = bucket.filter((c) => {
+    let ok = true;
+    if (numStripped) {
+      ok = ok && (c.number === cardNumber || c.number === numStripped);
+    }
+    if (hint) {
+      ok = ok && c.setName.toLowerCase().includes(hint);
+    }
+    return ok;
+  });
+
+  return filtered.length > 0 ? filtered : bucket;
 }

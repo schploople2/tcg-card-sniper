@@ -6,7 +6,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { AppError } from "../middleware/errorHandler.js";
 import { extractCards, namesToExtracted } from "../services/cardNameExtractor.js";
 import { detectLotShape } from "../services/lotDetection.js";
-import { scoreLot, valueLot } from "../services/lotValuation.js";
+import { scoreLot, valueLot, mergeTitleAndVisionParsed } from "../services/lotValuation.js";
 import { searchEbayLots } from "../services/ebay.js";
 import { getLotImages } from "../services/lotImages.js";
 import {
@@ -365,38 +365,124 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
     // Resolve each suggested name to catalog Card rows + price candidates
     // via the existing valuation pipeline. This gives the UI the same
     // candidate-printing shape used for auto-parsed cards.
+    //
+    // Set + number hints flow through so valuation can narrow the candidate
+    // list to the exact printing the model identified — when those hints
+    // are present and match. Soft fallback in valueLot recovers candidates
+    // if the hint is slightly off.
     const extracted = await namesToExtracted(
       merged.map((s) => ({
         name: s.name,
         quantity: s.quantity,
         confidence: s.confidence,
+        setHint: s.setHint,
+        cardNumber: s.cardNumber,
       }))
     );
     const valuation = await valueLot(extracted);
 
     // Re-attach the per-suggestion source-image position + cardNumber/setHint
-    // hints. We do this by aligning the valuation's parsedCards back to the
-    // merged suggestions (both are in extracted-input order).
-    const suggestions = valuation.parsedCards.map((parsed, i) => ({
-      name: parsed.name,
-      quantity: parsed.quantity,
-      confidence: parsed.confidence,
-      candidates: parsed.candidates,
-      setHint: merged[i]?.setHint ?? null,
-      cardNumber: merged[i]?.cardNumber ?? null,
-      sourceImagePosition: merged[i]?.sourceImagePosition ?? null,
-    }));
+    // hints for the UI chips. We align by lowercased name rather than by
+    // index because `namesToExtracted` skips inputs that don't resolve in
+    // the catalog (too-short names or unknown names), so parsedCards may be
+    // shorter than `merged` and their indices won't line up.
+    const mergedByName = new Map(merged.map((m) => [m.name.toLowerCase(), m]));
+    const suggestions = valuation.parsedCards.map((parsed) => {
+      const m = mergedByName.get(parsed.name.toLowerCase());
+      return {
+        name: parsed.name,
+        quantity: parsed.quantity,
+        confidence: parsed.confidence,
+        candidates: parsed.candidates,
+        setHint: m?.setHint ?? null,
+        cardNumber: m?.cardNumber ?? null,
+        sourceImagePosition: m?.sourceImagePosition ?? null,
+      };
+    });
+
+    // Persist vision findings back to the Lot row so the search feed
+    // reflects what's actually in the photos, not just what was in the title.
+    // A lot whose title was "100 Card Lot" and was UNSCORED can move to a
+    // real tier once vision identifies cards. LotAnnotation (per-user
+    // overlay) stays untouched — this only refreshes the public auto-parsed
+    // view of the lot.
+    const lotUpdate = await persistOcrToLot(req.params.ebayItemId, merged);
 
     res.json({
       ebayItemId: req.params.ebayItemId,
       suggestions,
       cacheStatus: result.cacheStatus,
       imagesProcessed: result.imagesProcessed,
+      lotUpdate,
     });
   } catch (err) {
     next(err);
   }
 });
+
+/**
+ * Merge vision-derived suggestions into the Lot row's `parsedCards` and
+ * re-run valuation + scoring. Returns the before/after summary the UI can
+ * use to flash "tier upgraded" / "value range refined" feedback.
+ *
+ * Merge rule: union by lowercased name. When the same name appears in both
+ * the title-extracted set and the vision-derived set, the vision reading
+ * wins on quantity / confidence (and contributes the hints). The title
+ * already determined that the card was *mentioned*; vision is more
+ * informative about how many and which printing.
+ *
+ * Returns null when the lot row is missing — vision still produced
+ * suggestions for the UI, but there's nothing to update.
+ */
+async function persistOcrToLot(
+  ebayItemId: string,
+  visionSuggestions: Array<{
+    name: string;
+    quantity: number;
+    confidence: number;
+    setHint?: string | null;
+    cardNumber?: string | null;
+  }>
+): Promise<{
+  before: { lotTier: string; lotScore: number; lowEstimate: number; highEstimate: number };
+  after: { lotTier: string; lotScore: number; lowEstimate: number; highEstimate: number };
+} | null> {
+  const lot = await prisma.lot.findUnique({ where: { ebayItemId } });
+  if (!lot) return null;
+
+  const merged = await namesToExtracted(
+    mergeTitleAndVisionParsed(lot.parsedCards, visionSuggestions)
+  );
+  const valuation = await valueLot(merged);
+  const { lotScore, lotTier } = scoreLot(Number(lot.totalCost), valuation.lowEstimate);
+
+  await prisma.lot.update({
+    where: { ebayItemId },
+    data: {
+      parsedCards: valuation.parsedCards as unknown as Prisma.InputJsonValue,
+      lowEstimate: valuation.lowEstimate,
+      highEstimate: valuation.highEstimate,
+      lotScore,
+      lotTier: lotTier as Prisma.LotCreateInput["lotTier"],
+      parsedAt: new Date(),
+    },
+  });
+
+  return {
+    before: {
+      lotTier: lot.lotTier,
+      lotScore: lot.lotScore,
+      lowEstimate: Number(lot.lowEstimate),
+      highEstimate: Number(lot.highEstimate),
+    },
+    after: {
+      lotTier,
+      lotScore,
+      lowEstimate: valuation.lowEstimate,
+      highEstimate: valuation.highEstimate,
+    },
+  };
+}
 
 /**
  * GET /api/lots/:ebayItemId/images

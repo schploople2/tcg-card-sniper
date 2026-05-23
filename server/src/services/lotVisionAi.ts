@@ -92,7 +92,7 @@ If you see no Pokémon cards, return {"cards":[]}.`;
 
 // ─── Image processing ────────────────────────────────────────────────────────
 
-interface RawCard {
+export interface RawCard {
   cardName?: unknown;
   setHint?: unknown;
   cardNumber?: unknown;
@@ -100,8 +100,8 @@ interface RawCard {
   confidence?: unknown;
 }
 
-/** Parse a model response, defensive against malformed JSON / extra prose. */
-function parseModelOutput(text: string): RawCard[] {
+/** Parse a model response, defensive against malformed JSON / extra prose. Exported for tests. */
+export function parseModelOutput(text: string): RawCard[] {
   // First try clean JSON. If that fails, try to strip surrounding prose
   // and code fences and try again. Last resort: empty.
   const attempts = [
@@ -123,7 +123,8 @@ function parseModelOutput(text: string): RawCard[] {
   return [];
 }
 
-function coerceSuggestion(
+/** Normalise one raw card object from the model into a VisionSuggestion. Exported for tests. */
+export function coerceSuggestion(
   raw: RawCard,
   position: number
 ): VisionSuggestion | null {

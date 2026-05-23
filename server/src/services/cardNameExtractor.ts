@@ -128,6 +128,17 @@ export interface ExtractedName {
   confidence: number;
   /** Start / end positions in the normalised title (for debugging). */
   span: { start: number; end: number };
+  /**
+   * Optional set hint from upstream sources (vision-AI) used to narrow the
+   * candidate list in valuation. Title-extraction doesn't populate this —
+   * the field stays undefined for the title path.
+   */
+  setHint?: string | null;
+  /**
+   * Optional card number hint (e.g. "4/102" or "4"). Compared exactly against
+   * `Card.number` (with `/N` denominator stripped) when narrowing candidates.
+   */
+  cardNumber?: string | null;
 }
 
 /**
@@ -210,7 +221,13 @@ export async function extractCards(title: string): Promise<ExtractedName[]> {
  * Span is reported as 0..0 since there's no title scan involved.
  */
 export async function namesToExtracted(
-  inputs: Array<{ name: string; quantity?: number; confidence?: number }>
+  inputs: Array<{
+    name: string;
+    quantity?: number;
+    confidence?: number;
+    setHint?: string | null;
+    cardNumber?: string | null;
+  }>
 ): Promise<ExtractedName[]> {
   if (inputs.length === 0) return [];
   const trie = await getTrie();
@@ -234,6 +251,8 @@ export async function namesToExtracted(
       quantity: Math.max(1, Math.floor(input.quantity ?? 1)),
       confidence: Math.max(0, Math.min(1, input.confidence ?? 0.7)),
       span: { start: 0, end: 0 },
+      setHint: input.setHint ?? null,
+      cardNumber: input.cardNumber ?? null,
     });
   }
   return out;
