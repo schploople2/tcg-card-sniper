@@ -136,6 +136,9 @@ importers:
       node-cron:
         specifier: ^3.0.3
         version: 3.0.3
+      typescript:
+        specifier: ^5.4.5
+        version: 5.9.3
       zod:
         specifier: ^3.23.8
         version: 3.25.76
@@ -167,9 +170,6 @@ importers:
       tsx:
         specifier: ^4.15.1
         version: 4.22.3
-      typescript:
-        specifier: ^5.4.5
-        version: 5.9.3
       vitest:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@20.19.41)
