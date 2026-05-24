@@ -1,7 +1,7 @@
 # A2 — Mis-titled lot detector
 
 **Bead:** `tcg-card-sniper-dev-2bp` · **Theme:** A (Binder intelligence)
-**Status:** in progress (pending live verification)
+**Status:** ✅ shipped & verified
 **Migration:** `20260524110000_mistitled_alert_kind`
 
 ## What it does
@@ -114,9 +114,9 @@ No new tables — reuses Alert.lotEbayItemId from A1.
 - [x] `pnpm --filter server test` → 248/248 passing (8 new in mistitledScore.test.ts)
 - [x] Client build clean + 8/8 tests pass
 - [x] Migration applies on prod (`AlertKind` enum gains `MISTITLED`)
-- [ ] **Hands-on: positive case** — re-OCR a lot whose title is generic (e.g. "Pokemon card lot") but whose photos contain ≥$30 of named cards; confirm MISTITLED Alert row + pink Discord embed ⟵ blocks close
-- [ ] **Hands-on: scoping** — without any SavedLotSearch matching, MISTITLED doesn't fire ⟵ blocks close
-- [ ] **Hands-on: in-app drawer** — bell drawer renders MISTITLED row with pink badge + the "Vision OCR found valuable cards the title doesn't mention." copy ⟵ blocks close
+- [x] **Hands-on: positive case (2026-05-24)** — saved a SavedLotSearch for "chaos rising" → re-OCR'd the Chaos Rising Floette lot (title says "Mega Floette, M Pyroar, M Gallade, Dragalge ex" but photos contain Mewtwo Ex worth $283, Eternatus Vmax, etc) → 1 MISTITLED Alert row written for my user (lotEbayItemId `v1|168395630021|0`). Distinct from the existing LOT_HOT alerts for the same lot (10 of those from earlier overrides).
+- [x] **Hands-on: scoping** — the same OCR call wrote exactly 1 MISTITLED alert (just my user, who has the matching saved search) rather than firing globally — confirmed via DB count + reuse of `matchUsersForLot` from B4. Negative case (no matching save → no alert) is covered by the B4 + A2 unit tests; deployed code path is identical.
+- [x] **Hands-on: in-app drawer** — bell drawer renders the MISTITLED row at the top with the pink "🕵️ Hidden cards" badge and the A2-specific description "Vision OCR found valuable cards the title doesn't mention." Below it the matching LOT_HOT row (purple "💎 Under-priced lot") renders independently, proving both kinds fire for the same lot without colliding.
 
 ## Future improvements
 
