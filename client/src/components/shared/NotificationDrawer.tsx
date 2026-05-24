@@ -162,6 +162,8 @@ function AlertRow({ alert, onMarkRead }: AlertRowProps) {
       ? "🔥 Hot deal"
       : alert.kind === "MISTITLED"
       ? "🕵️ Hidden cards"
+      : alert.kind === "SELLER_LISTING"
+      ? "👤 Watched seller"
       : "💎 Under-priced lot";
   const kindClass =
     alert.kind === "TARGET_HIT"
@@ -170,6 +172,8 @@ function AlertRow({ alert, onMarkRead }: AlertRowProps) {
       ? "bg-red-900/30 text-red-300 border-red-700/40"
       : alert.kind === "MISTITLED"
       ? "bg-pink-900/30 text-pink-300 border-pink-700/40"
+      : alert.kind === "SELLER_LISTING"
+      ? "bg-orange-900/30 text-orange-300 border-orange-700/40"
       : "bg-purple-900/30 text-purple-300 border-purple-700/40";
 
   return (

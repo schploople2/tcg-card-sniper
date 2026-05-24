@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Send, Save, Trash2, ExternalLink, Bookmark } from "lucide-react";
+import { Send, Save, Trash2, ExternalLink, Bookmark, UserPlus } from "lucide-react";
 import { PageShell } from "@/components/layout/PageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,11 @@ import {
   useSavedLotSearches,
   useDeleteSavedLotSearch,
 } from "@/hooks/useSavedLotSearches";
+import {
+  useWatchedSellers,
+  useCreateWatchedSeller,
+  useDeleteWatchedSeller,
+} from "@/hooks/useWatchedSellers";
 import { formatDistanceToNow } from "date-fns";
 
 /**
@@ -156,8 +161,110 @@ export default function Settings() {
 
         {/* B4 — Saved lot searches */}
         <SavedSearchesSection />
+
+        {/* D2 — Watched sellers */}
+        <WatchedSellersSection />
       </div>
     </PageShell>
+  );
+}
+
+function WatchedSellersSection() {
+  const { data, isLoading } = useWatchedSellers();
+  const create = useCreateWatchedSeller();
+  const del = useDeleteWatchedSeller();
+  const sellers = data?.watchedSellers ?? [];
+  const [draftName, setDraftName] = useState("");
+
+  function handleAdd() {
+    const name = draftName.trim();
+    if (!name) return;
+    create.mutate(
+      { sellerName: name },
+      { onSuccess: () => setDraftName("") }
+    );
+  }
+
+  return (
+    <section className="rounded-xl border border-slate-800 bg-[#0a0f1e]/60 p-5">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+            <UserPlus className="h-4 w-4 text-orange-400" />
+            Watched sellers
+          </h2>
+          <p className="text-xs text-slate-500 mt-1 max-w-prose">
+            Get notified (in-app + Discord) when a specific eBay seller's
+            listing shows up in your watched-card refreshes.{" "}
+            <span className="text-slate-600">
+              v1 limitation: alerts only fire when the seller lists a card
+              you also watch — full per-seller search lands in a follow-up.
+            </span>
+          </p>
+        </div>
+      </div>
+
+      <div className="flex gap-2 mb-3">
+        <Input
+          type="text"
+          value={draftName}
+          onChange={(e) => setDraftName(e.target.value)}
+          placeholder="eBay seller username (e.g. kstamps-2015)"
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleAdd();
+            }
+          }}
+          className="flex-1 bg-slate-900 border-slate-700 text-slate-200 placeholder:text-slate-500"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <Button
+          onClick={handleAdd}
+          disabled={!draftName.trim() || create.isPending}
+          className="bg-orange-500/80 text-slate-950 hover:bg-orange-400"
+        >
+          <UserPlus className="h-4 w-4 mr-1.5" />
+          Watch
+        </Button>
+      </div>
+
+      {isLoading ? (
+        <div className="h-12 rounded bg-slate-900/50 animate-pulse" />
+      ) : sellers.length === 0 ? (
+        <div className="text-xs text-slate-500 italic px-1 py-2">
+          No watched sellers yet.
+        </div>
+      ) : (
+        <ul className="space-y-1.5">
+          {sellers.map((s) => (
+            <li
+              key={s.id}
+              className="flex items-center justify-between gap-2 rounded-md border border-slate-800 bg-slate-900/50 px-3 py-2"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-slate-200 truncate font-medium">
+                  @{s.sellerName}
+                </p>
+                {s.note && (
+                  <p className="text-[10px] text-slate-500 mt-0.5">{s.note}</p>
+                )}
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => del.mutate(s.id)}
+                disabled={del.isPending}
+                className="h-7 text-xs text-red-400 hover:text-red-300 hover:bg-red-900/20"
+              >
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

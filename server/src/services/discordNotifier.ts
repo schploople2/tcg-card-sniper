@@ -70,6 +70,7 @@ const KIND_LABEL: Record<AlertKind, string> = {
   HOT_DEAL: "🔥 Hot deal",
   LOT_HOT: "💎 Under-priced lot",
   MISTITLED: "🕵️ Hidden cards in lot",
+  SELLER_LISTING: "👤 Watched seller listed",
 };
 
 /**

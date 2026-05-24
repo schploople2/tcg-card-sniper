@@ -62,6 +62,12 @@ enum AlertKind {
   /// signal). Fires independently of LOT_HOT — a lot can be both. Dedup
   /// is per (userId, lotEbayItemId, kind) like the other lot alerts.
   MISTITLED
+  /// D2 — a new listing surfaced from a seller the user explicitly
+  /// watches (WatchedSeller). References Alert.listingId like the
+  /// card-tied kinds. Independent of tier — even a fairly-priced listing
+  /// fires SELLER_LISTING because the signal is "this seller posted
+  /// something new", not "this is a deal".
+  SELLER_LISTING
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,6 +95,30 @@ model User {
   lotAnnotations  LotAnnotation[]
   ocrUsage        OcrUsage[]
   savedLotSearches SavedLotSearch[]
+  watchedSellers  WatchedSeller[]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WatchedSeller — D2: eBay seller usernames a user wants new-listing alerts for.
+// Evaluated piggy-back during the existing refresh-listings cron: whenever a
+// fresh listing's `seller` matches a WatchedSeller, fire SELLER_LISTING.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model WatchedSeller {
+  id              String    @id @default(cuid())
+  userId          String
+  /// eBay seller username, case-insensitive comparison at evaluation time.
+  /// Stored as the user typed it for display, lowercased for matching.
+  sellerName      String
+  /// Optional friendly note ("the WOTC guy", "auctions for cheap").
+  note            String?
+  createdAt       DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sellerName])
+  @@index([userId])
+  @@index([sellerName])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

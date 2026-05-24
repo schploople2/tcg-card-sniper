@@ -9,7 +9,7 @@ import {
   variantToEbayKeyword,
 } from "../services/priceVariant.js";
 import type { CardmarketPrices } from "../services/pokemontcg.js";
-import { evaluateListings } from "../services/alerts.js";
+import { evaluateListings, evaluateListingsForWatchedSellers } from "../services/alerts.js";
 import { LISTING_CACHE_TTL_MS, PRICE_CACHE_TTL_MS } from "../config.js";
 
 /**
@@ -161,7 +161,9 @@ export function startRefreshJob(): void {
           // unique(cardId, listingId, kind) index dedupes per-user, not globally.
           const freshListings = await prisma.listing.findMany({
             where: { cardId: card.id, expiresAt: { gt: now } },
-            select: { id: true, totalCost: true, dealTier: true },
+            // D2: include `seller` for the WatchedSeller match in
+            // evaluateListingsForWatchedSellers below.
+            select: { id: true, totalCost: true, dealTier: true, seller: true },
           });
 
           const siblings = await prisma.watchedCard.findMany({
@@ -176,6 +178,10 @@ export function startRefreshJob(): void {
           for (const sib of siblings) {
             alertsCreated += await evaluateListings(sib, freshListings);
           }
+          // D2 — fire SELLER_LISTING alerts for any of these listings whose
+          // seller matches a WatchedSeller row. Same batch — no extra eBay
+          // calls.
+          alertsCreated += await evaluateListingsForWatchedSellers(freshListings);
 
           console.log(
             `[refreshJob] ✓ "${card.cardName}" — ${scored.length} listings, ` +

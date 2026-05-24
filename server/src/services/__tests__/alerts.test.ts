@@ -21,6 +21,10 @@ vi.mock("../../db.js", () => ({
     alert: { createMany, findMany: alertFindMany },
     user: { findUnique: userFindUnique },
     listing: { findMany: listingFindMany },
+    // D2 added evaluateListingsForWatchedSellers in the same file; mock the
+    // table so importing the module doesn't blow up even though these tests
+    // don't exercise that function.
+    watchedSeller: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
 
