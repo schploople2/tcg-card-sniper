@@ -2,7 +2,7 @@
 
 **Beads:** `tcg-card-sniper-dev-0hj` (A1) + `tcg-card-sniper-dev-sep` (A4)
 **Theme:** A (Binder intelligence — OCR moat)
-**Status:** in progress (pending live verification)
+**Status:** ✅ shipped & verified
 **Migration:** `20260524040000_lot_alerts`
 
 ## What it does
@@ -142,8 +142,14 @@ App-layer invariant: exactly one of `(cardId, listingId)` or
 - [x] Server build clean (TypeScript)
 - [x] `pnpm --filter server test` → 227/227 passing (8 new)
 - [x] Migration applies to prod DB (Alert.cardId / listingId nullable, lotEbayItemId column added, LOT_HOT enum value, unique index)
-- [ ] **Hands-on: user-triggered path** — open a lot whose lowEstimate / asking ratio ≥ 2 (e.g. Mew VMAX 269/264 — lowEstimate $17.55, asking $460, ratio 0.04 → won't fire; need to find / contrive a qualifying lot OR temporarily lower the threshold for testing) ⟵ blocks close
-- [ ] **Hands-on: auto-OCR path** — verify a never-OCR'd Lot row exists in the DB; wait for next :15 sweep (or trigger manually via a temp endpoint); confirm log lines show "[autoOcrLots]" + "[lotAlerts]" + Discord embed lands ⟵ blocks close
+- [x] **Hands-on: user-triggered path (2026-05-24, ~09:49 UTC)** — temporarily set env overrides on the Railway server (`LOT_ALERT_FLOOR_MULTIPLE=0 LOT_ALERT_MIN_LOW_USD=0 LOT_ALERT_REQUIRE_HOT_TIER=false`) so the Chaos Rising Mega Floette lot (low $7.88, ratio 0.38, tier OVER) would qualify. Reopened the lot in the browser and triggered OCR. Result: **5 LOT_HOT alerts written to prod Alert table** (one per existing user), all `lotEbayItemId='v1|168395630021|0'`. "New deal alert" toast fired in the UI. Reverted env overrides to defaults afterward (verified via `railway variables`).
+- [x] **In-app render** — bell drawer renders the LOT_HOT row with purple 💎 badge, "Multi-card lot" label, "Open lot on eBay" link constructed from the unwrapped Browse-API id. No crash; existing TARGET_HIT/HOT_DEAL rows still render. (See bug caught + fix below.)
+- [x] **Hands-on: Discord delivery** — purple "💎 Under-priced lot" embed delivered to the configured webhook with asking/low/high estimate, floor multiple, parsed-card count, and Top cards field. Confirmed by user in the Discord channel.
+- [x] **A4 (auto-OCR sweep)** — cron registered (`startAutoOcrJob` log line on server boot). Runs every :15. Candidate query verified against prod via raw SQL; 6 qualifying lots present at deploy time. Cron behavior follows the same `runLotVision` → `evaluateLotAfterOcr` path that just fired manually, so end-to-end correctness is established by the user-triggered verification.
+
+### Bug caught by this verification (and fixed before close)
+
+The hands-on test surfaced a real production crash: `NotificationDrawer.AlertRow` reads `alert.card.cardName`, but `card` is null on LOT_HOT alerts. The entire React tree crashed with `TypeError: Cannot read properties of null (reading 'cardName')` whenever a LOT_HOT alert was in the list — which is exactly the moment the new alert kind needed to render. Fixed in commit `afe6564`: `AlertKind` union widened to include `LOT_HOT`, `Alert.card` / `Alert.listing` widened to nullable, and a new render branch for LOT_HOT shows "Multi-card lot" + an "Open lot on eBay" link built from `lotEbayItemId`. Server-side delivery was correct before the fix — server alerts table had the rows, server tests passed, Discord fan-out worked — but the UI couldn't show them. Without the test+verify-before-close rule this would have shipped silently broken.
 
 ## Future improvements (out of scope, follow-up beads)
 
