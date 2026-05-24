@@ -239,18 +239,28 @@ describe("runLotVision", () => {
   });
 
   it("replays from cache when every image has ocrText (no API spend)", async () => {
+    // Matches the production cache shape: visionOneImage stores the
+    // already-coerced VisionSuggestion shape ({name, ...}) — NOT the raw
+    // model output ({cardName, ...}). Earlier this test mocked the raw
+    // shape, which masked rys: a serialization mismatch where the
+    // cache-hit path tried to re-coerce already-coerced rows and silently
+    // dropped every entry.
     findMany.mockResolvedValueOnce([
       {
         id: "img-1",
         position: 0,
         imageUrl: "https://e/0.jpg",
-        ocrText: JSON.stringify({ cards: [{ cardName: "Charizard", confidence: 0.9 }] }),
+        ocrText: JSON.stringify({
+          cards: [{ name: "charizard", quantity: 1, confidence: 0.9, setHint: null, cardNumber: null, sourceImagePosition: 0 }],
+        }),
       },
       {
         id: "img-2",
         position: 1,
         imageUrl: "https://e/1.jpg",
-        ocrText: JSON.stringify({ cards: [{ cardName: "Pikachu", confidence: 0.8 }] }),
+        ocrText: JSON.stringify({
+          cards: [{ name: "pikachu", quantity: 1, confidence: 0.8, setHint: null, cardNumber: null, sourceImagePosition: 1 }],
+        }),
       },
     ]);
 
@@ -261,6 +271,34 @@ describe("runLotVision", () => {
     expect(result.cacheStatus).toBe("cached");
     expect(result.imagesProcessed).toBe(0);
     expect(result.suggestions.map((s) => s.name)).toEqual(["charizard", "pikachu"]);
+  });
+
+  it("rys regression — production cache shape with hints replays through parseCachedSuggestions", async () => {
+    // Exact byte-for-byte sample of the cache content from prod lot
+    // v1|147321331349|0 position 3, which was returning zero suggestions
+    // until the cache-hit replay was fixed.
+    findMany.mockResolvedValueOnce([
+      {
+        id: "img-3",
+        position: 3,
+        imageUrl: "https://e/3.jpg",
+        ocrText:
+          '{"cards":[{"name":"mew vmax","quantity":1,"confidence":0.95,"setHint":"Fusion Strike","cardNumber":"260/264","sourceImagePosition":3}]}',
+      },
+    ]);
+
+    const result = await runLotVision("ebay-rys");
+
+    expect(messagesCreate).not.toHaveBeenCalled();
+    expect(result.suggestions).toHaveLength(1);
+    expect(result.suggestions[0]).toMatchObject({
+      name: "mew vmax",
+      quantity: 1,
+      confidence: 0.95,
+      setHint: "Fusion Strike",
+      cardNumber: "260/264",
+      sourceImagePosition: 3,
+    });
   });
 
   it("calls the API and writes back cache on miss", async () => {

@@ -124,6 +124,71 @@ export function parseModelOutput(text: string): RawCard[] {
   return [];
 }
 
+/**
+ * Replay a cached `LotImage.ocrText` blob into VisionSuggestion[]. The
+ * cache stores the already-coerced shape (see `cacheJson` in
+ * `visionOneImage`), so this is mostly a guarded JSON.parse + minimal
+ * shape check — not the raw-model-output coercion pipeline.
+ *
+ * The `position` override exists because older cache entries may have
+ * been written before sourceImagePosition was added; we re-stamp it
+ * from the loop context to be safe.
+ *
+ * Exported for tests.
+ */
+export function parseCachedSuggestions(
+  text: string,
+  position: number
+): VisionSuggestion[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return [];
+  }
+  const cards =
+    parsed && typeof parsed === "object" && Array.isArray((parsed as { cards?: unknown }).cards)
+      ? ((parsed as { cards: unknown[] }).cards)
+      : [];
+  const out: VisionSuggestion[] = [];
+  for (const c of cards) {
+    if (!c || typeof c !== "object") continue;
+    const rec = c as Record<string, unknown>;
+    // Defensive: accept either the canonical `name` (current writer) or
+    // `cardName` (would only appear if someone reverts to raw-model output
+    // in cache). Drops anything without a string name.
+    const rawName =
+      typeof rec.name === "string"
+        ? rec.name
+        : typeof rec.cardName === "string"
+        ? rec.cardName
+        : "";
+    const name = rawName.trim().toLowerCase();
+    if (!name || name === "unidentified") continue;
+    const quantity =
+      typeof rec.quantity === "number" && rec.quantity >= 1 && rec.quantity <= 99
+        ? Math.floor(rec.quantity)
+        : 1;
+    const confidence =
+      typeof rec.confidence === "number"
+        ? Math.max(0, Math.min(1, rec.confidence))
+        : 0.5;
+    out.push({
+      name,
+      quantity,
+      confidence,
+      setHint:
+        typeof rec.setHint === "string" && rec.setHint.length > 0 ? rec.setHint : null,
+      cardNumber:
+        typeof rec.cardNumber === "string" && rec.cardNumber.length > 0
+          ? rec.cardNumber
+          : null,
+      sourceImagePosition: position,
+    });
+  }
+  return out;
+}
+
 /** Normalise one raw card object from the model into a VisionSuggestion. Exported for tests. */
 export function coerceSuggestion(
   raw: RawCard,
@@ -233,11 +298,15 @@ export async function runLotVision(
 
   for (const img of capped) {
     if (img.ocrText) {
-      // Cache hit — replay stored suggestions.
-      const raw = parseModelOutput(img.ocrText);
-      for (const r of raw) {
-        const s = coerceSuggestion(r, img.position);
-        if (s) suggestions.push(s);
+      // Cache hit — replay stored suggestions. The cache stores the
+      // *already-coerced* VisionSuggestion shape ({name, confidence, ...}),
+      // NOT the raw model output ({cardName, ...}), so don't run it through
+      // coerceSuggestion again — that would look for `cardName` on
+      // already-renamed objects and silently drop every cached entry.
+      // (rys: this was a real bug that wiped out every cached lot's
+      // suggestions until the next manual re-OCR.)
+      for (const s of parseCachedSuggestions(img.ocrText, img.position)) {
+        suggestions.push(s);
       }
       cachedCount += 1;
       continue;
