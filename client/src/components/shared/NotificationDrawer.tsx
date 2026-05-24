@@ -141,6 +141,11 @@ function AlertRow({ alert, onMarkRead }: AlertRowProps) {
   const isUnread = alert.readAt === null;
   const card = alert.card;
   const listing = alert.listing;
+  // A1 — LOT_HOT alerts reference a lot, not a watched card. card is null
+  // and we render the lot title from `listing` (which the alerts route
+  // populates from the Lot row for LOT_HOT specifically). Falls back to a
+  // generic label when neither is available.
+  const isLotAlert = alert.kind === "LOT_HOT";
 
   const onOpenEbay = () => {
     if (listing) {
@@ -150,11 +155,17 @@ function AlertRow({ alert, onMarkRead }: AlertRowProps) {
   };
 
   const kindLabel =
-    alert.kind === "TARGET_HIT" ? "🎯 Target hit" : "🔥 Hot deal";
+    alert.kind === "TARGET_HIT"
+      ? "🎯 Target hit"
+      : alert.kind === "HOT_DEAL"
+      ? "🔥 Hot deal"
+      : "💎 Under-priced lot";
   const kindClass =
     alert.kind === "TARGET_HIT"
       ? "bg-emerald-900/30 text-emerald-300 border-emerald-700/40"
-      : "bg-red-900/30 text-red-300 border-red-700/40";
+      : alert.kind === "HOT_DEAL"
+      ? "bg-red-900/30 text-red-300 border-red-700/40"
+      : "bg-purple-900/30 text-purple-300 border-purple-700/40";
 
   return (
     <div
@@ -182,11 +193,19 @@ function AlertRow({ alert, onMarkRead }: AlertRowProps) {
               </span>
             </div>
             <p className="text-xs text-slate-300 font-medium mt-1 truncate">
-              {card.cardName}
-              {card.cardNumber && (
-                <span className="text-slate-600"> · #{card.cardNumber}</span>
+              {card ? (
+                <>
+                  {card.cardName}
+                  {card.cardNumber && (
+                    <span className="text-slate-600"> · #{card.cardNumber}</span>
+                  )}
+                  <span className="text-slate-600"> · {card.setName}</span>
+                </>
+              ) : isLotAlert ? (
+                <span className="text-slate-300">Multi-card lot</span>
+              ) : (
+                <span className="text-slate-500 italic">(card removed)</span>
               )}
-              <span className="text-slate-600"> · {card.setName}</span>
             </p>
           </div>
         </div>
@@ -231,6 +250,25 @@ function AlertRow({ alert, onMarkRead }: AlertRowProps) {
             aria-hidden
           />
         </button>
+      ) : isLotAlert && alert.lotEbayItemId ? (
+        // A1 — LOT_HOT alert. We don't have a full listing snapshot wired
+        // through yet (follow-up bead); just expose the eBay link so the
+        // user can jump straight to the lot.
+        <a
+          href={ebayUrlFromLotId(alert.lotEbayItemId)}
+          target="_blank"
+          rel="noopener"
+          onClick={() => isUnread && onMarkRead()}
+          className="block bg-slate-800/50 hover:bg-slate-800 rounded-lg p-2 transition group"
+        >
+          <p className="text-[11px] text-slate-300">
+            Vision OCR found multiple cards above asking price.
+          </p>
+          <span className="mt-1 inline-flex items-center gap-1 text-xs text-purple-300 group-hover:text-purple-200">
+            Open lot on eBay
+            <ExternalLink className="h-3 w-3" />
+          </span>
+        </a>
       ) : (
         // Listing rotated out of the 30-min cache — alert is historical.
         <div className="text-[11px] text-slate-600 italic px-2 py-1">
@@ -240,4 +278,15 @@ function AlertRow({ alert, onMarkRead }: AlertRowProps) {
       )}
     </div>
   );
+}
+
+/**
+ * Convert a stored Lot.ebayItemId (Browse API format `v1|<id>|0`) into a
+ * canonical eBay item URL. Falls back to the raw value when the prefix
+ * isn't present, so older or alternative ID shapes still link somewhere.
+ */
+function ebayUrlFromLotId(lotEbayItemId: string): string {
+  const m = lotEbayItemId.match(/^v\d+\|(\d+)\|/);
+  const id = m ? m[1] : lotEbayItemId;
+  return `https://www.ebay.com/itm/${id}`;
 }

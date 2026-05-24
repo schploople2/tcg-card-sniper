@@ -105,13 +105,14 @@ export interface WatchedCard {
 
 // ─── Alerts (P3 + P4) ────────────────────────────────────────────────────────
 
-export type AlertKind = "TARGET_HIT" | "HOT_DEAL";
+export type AlertKind = "TARGET_HIT" | "HOT_DEAL" | "LOT_HOT";
 
 export interface Alert {
   id: string;
   kind: AlertKind;
   readAt: string | null;
   createdAt: string;
+  // Null for LOT_HOT alerts — those reference lotEbayItemId instead.
   card: {
     id: string;
     cardName: string;
@@ -119,7 +120,7 @@ export interface Alert {
     cardNumber: string | null;
     variant: string;
     targetPrice: number | null;
-  };
+  } | null;
   listing: {
     id: string;
     title: string;
@@ -132,6 +133,8 @@ export interface Alert {
     conditionGrade: ConditionGrade | null;
     expiresAt: string;
   } | null;
+  // A1: set for LOT_HOT alerts; opens the lot analyzer in the UI.
+  lotEbayItemId: string | null;
   listingExpired: boolean;
 }
 
