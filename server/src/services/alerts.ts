@@ -6,6 +6,10 @@ import {
   postToDiscord,
   type AlertEmbedInput,
 } from "./discordNotifier.js";
+import {
+  buildListingPushPayload,
+  sendPushToUser,
+} from "./pushNotifier.js";
 
 /**
  * Evaluate a batch of just-fetched listings against a watched card's
@@ -96,7 +100,11 @@ export async function evaluateListings(
   // Fan-out Discord webhook posts for the novel alerts. Fire-and-forget;
   // failures are logged but never block the alert path.
   if (novel.length > 0) {
-    void fanOutDiscord(card.userId, novel.map((n) => ({ listingId: n.listingId, kind: n.kind })));
+    const novelPayload = novel.map((n) => ({ listingId: n.listingId, kind: n.kind }));
+    void fanOutDiscord(card.userId, novelPayload);
+    void fanOutPushForListings(
+      novel.map((n) => ({ userId: card.userId, listingId: n.listingId, kind: n.kind }))
+    );
   }
 
   return result.count;
@@ -254,6 +262,7 @@ export async function evaluateListingsForWatchedSellers(
 
   if (novel.length > 0) {
     void fanOutSellerListingDiscord(novel);
+    void fanOutPushForListings(novel);
   }
   return result.count;
 }
@@ -319,6 +328,62 @@ async function fanOutSellerListingDiscord(
   } catch (err) {
     console.error(
       "[alerts:seller-discord] fan-out crashed:",
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+/**
+ * B2 — Web Push fan-out for listing-tied alerts (TARGET_HIT, HOT_DEAL,
+ * SELLER_LISTING). Looks up the listing + card for each alert and sends
+ * one push per (user, listing). Fire-and-forget — push delivery is
+ * best-effort and independent of Discord / bell.
+ */
+async function fanOutPushForListings(
+  alerts: Array<{ userId: string; listingId: string; kind: AlertKind }>
+): Promise<void> {
+  try {
+    if (alerts.length === 0) return;
+    const listingIds = [...new Set(alerts.map((a) => a.listingId))];
+    const listings = await prisma.listing.findMany({
+      where: { id: { in: listingIds } },
+      select: {
+        id: true,
+        title: true,
+        ebayUrl: true,
+        totalCost: true,
+        marketPrice: true,
+        seller: true,
+        card: { select: { cardName: true } },
+      },
+    });
+    const byId = new Map(listings.map((l) => [l.id, l]));
+
+    for (const a of alerts) {
+      if (
+        a.kind !== AlertKind.TARGET_HIT &&
+        a.kind !== AlertKind.HOT_DEAL &&
+        a.kind !== AlertKind.SELLER_LISTING
+      ) {
+        continue;
+      }
+      const l = byId.get(a.listingId);
+      if (!l) continue;
+      const headline =
+        a.kind === AlertKind.SELLER_LISTING
+          ? l.seller ?? "Unknown seller"
+          : l.card?.cardName ?? "Pokémon card";
+      const payload = buildListingPushPayload(a.kind, headline, {
+        title: l.title,
+        ebayUrl: l.ebayUrl,
+        totalCost: Number(l.totalCost),
+        marketPrice: l.marketPrice != null ? Number(l.marketPrice) : null,
+      });
+      await sendPushToUser(a.userId, payload);
+    }
+  } catch (err) {
+    console.error(
+      "[alerts:push] fan-out crashed:",
       err instanceof Error ? err.message : err
     );
   }

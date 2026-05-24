@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Send, Save, Trash2, ExternalLink, Bookmark, UserPlus } from "lucide-react";
+import { Send, Save, Trash2, ExternalLink, Bookmark, UserPlus, Bell, BellOff } from "lucide-react";
 import { PageShell } from "@/components/layout/PageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +17,7 @@ import {
   useCreateWatchedSeller,
   useDeleteWatchedSeller,
 } from "@/hooks/useWatchedSellers";
+import { usePushSubscription } from "@/hooks/usePushSubscription";
 import { formatDistanceToNow } from "date-fns";
 
 /**
@@ -158,6 +159,9 @@ export default function Settings() {
             </>
           )}
         </section>
+
+        {/* B2 — Web push notifications */}
+        <PushSection />
 
         {/* B4 — Saved lot searches */}
         <SavedSearchesSection />
@@ -335,6 +339,71 @@ function SavedSearchesSection() {
             </li>
           ))}
         </ul>
+      )}
+    </section>
+  );
+}
+
+function PushSection() {
+  const { status, busy, subscribe, unsubscribe } = usePushSubscription();
+
+  return (
+    <section className="rounded-xl border border-slate-800 bg-[#0a0f1e]/60 p-5">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+            <Bell className="h-4 w-4 text-amber-300" /> Push notifications
+          </h2>
+          <p className="text-xs text-slate-500 mt-1 max-w-prose">
+            Get a system notification on this device the moment a HOT deal,
+            target hit, hot lot, mis-titled lot, or watched-seller listing
+            fires. Tapping the notification opens the eBay listing directly.
+          </p>
+        </div>
+      </div>
+
+      {status === "loading" && (
+        <p className="text-xs text-slate-500">Checking browser support…</p>
+      )}
+      {status === "unsupported" && (
+        <p className="text-xs text-slate-500">
+          This browser does not support web push. Try a recent Chrome, Edge,
+          Firefox, or Safari 16+.
+        </p>
+      )}
+      {status === "denied" && (
+        <p className="text-xs text-amber-400">
+          Notifications are blocked for this site. Enable them in your
+          browser settings and reload to subscribe.
+        </p>
+      )}
+      {status === "default" && (
+        <Button
+          size="sm"
+          onClick={subscribe}
+          disabled={busy}
+          className="gap-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950"
+        >
+          <Bell className="h-3.5 w-3.5" />
+          {busy ? "Enabling…" : "Enable push notifications"}
+        </Button>
+      )}
+      {status === "subscribed" && (
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-emerald-400">
+            ✓ Subscribed on this device
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={unsubscribe}
+            disabled={busy}
+            className="gap-1.5 h-7 text-xs text-slate-400 hover:text-slate-200"
+          >
+            <BellOff className="h-3 w-3" />
+            {busy ? "Disabling…" : "Disable"}
+          </Button>
+        </div>
       )}
     </section>
   );

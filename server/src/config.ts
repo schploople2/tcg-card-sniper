@@ -70,6 +70,18 @@ const envSchema = z.object({
    * is ~$0.30/day.
    */
   OCR_DAILY_IMAGES_PER_USER: z.coerce.number().int().min(1).max(10000).default(100),
+
+  /**
+   * B2 — Web Push (VAPID) for browser/PWA push notifications. All three
+   * must be set together; if any is missing the push fan-out is a no-op
+   * (the rest of the app is unaffected). Generate with:
+   *   node -e "console.log(require('web-push').generateVAPIDKeys())"
+   * VAPID_SUBJECT is a contact URL/mailto: that browsers display to the
+   * user in some prompts — use a mailto: with the app owner's address.
+   */
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().default("mailto:schploople@gmail.com"),
 });
 
 const parsed = envSchema.safeParse(process.env);

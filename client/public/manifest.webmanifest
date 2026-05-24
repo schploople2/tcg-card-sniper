@@ -1,0 +1,17 @@
+{
+  "name": "TCG Card Sniper",
+  "short_name": "Sniper",
+  "description": "Pokémon card deal-finder with live alerts",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a1024",
+  "theme_color": "#0a1024",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

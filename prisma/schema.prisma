@@ -96,6 +96,31 @@ model User {
   ocrUsage        OcrUsage[]
   savedLotSearches SavedLotSearch[]
   watchedSellers  WatchedSeller[]
+  pushSubscriptions PushSubscription[]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PushSubscription — B2: per-device Web Push subscription endpoints.
+// One row per (user, browser/device) — a user can subscribe from multiple
+// devices and each gets its own row. The endpoint URL is unique per
+// subscription and is the natural primary key for upserts; userId is denormed
+// for fan-out queries.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  /// The push service endpoint URL the browser gave us at subscribe time.
+  /// Push services (FCM, APNs-via-Apple, Mozilla) rotate or revoke these;
+  /// when web-push returns 410 we should DELETE the row.
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

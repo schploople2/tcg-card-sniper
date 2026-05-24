@@ -14,6 +14,7 @@ import { lotsRouter } from "./routes/lots.js";
 import { settingsRouter } from "./routes/settings.js";
 import { savedLotSearchesRouter } from "./routes/savedLotSearches.js";
 import { watchedSellersRouter } from "./routes/watchedSellers.js";
+import { pushRouter } from "./routes/push.js";
 import { startRefreshJob } from "./jobs/refreshListings.js";
 import { startSnapshotJob } from "./jobs/snapshotPrices.js";
 import { startSyncCatalogJob } from "./jobs/syncCatalog.js";
@@ -45,6 +46,7 @@ app.use("/api/lots", lotsRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/saved-lot-searches", savedLotSearchesRouter);
 app.use("/api/watched-sellers", watchedSellersRouter);
+app.use("/api/push", pushRouter);
 
 // eBay Marketplace Account Deletion webhook — NOT under /api so the URL
 // stays stable and clearly distinct from the app's own JSON API.

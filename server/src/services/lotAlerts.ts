@@ -10,6 +10,7 @@ import {
 } from "./discordNotifier.js";
 import { matchUsersForLot } from "./savedLotSearches.js";
 import { computeMistitledScore } from "./mistitledScore.js";
+import { buildLotPushPayload, sendPushToUser } from "./pushNotifier.js";
 
 /**
  * A1 — Lot-tied alerts.
@@ -99,10 +100,9 @@ export async function evaluateLotAfterOcr(
   });
 
   if (novel.length > 0) {
-    void fanOutDiscord(
-      lot,
-      novel.map((n) => n.userId)
-    );
+    const userIds = novel.map((n) => n.userId);
+    void fanOutDiscord(lot, userIds);
+    void fanOutPushLotHot(lot, userIds);
   }
 
   return { qualified: true, alertsCreated: result.count };
@@ -245,7 +245,9 @@ export async function evaluateLotForMistitling(
   });
 
   if (novel.length > 0) {
-    void fanOutMistitledDiscord(lot, score, novel.map((n) => n.userId));
+    const userIds = novel.map((n) => n.userId);
+    void fanOutMistitledDiscord(lot, score, userIds);
+    void fanOutPushMistitled(lot, score.hiddenUsd, userIds);
   }
 
   return {
@@ -293,6 +295,52 @@ async function fanOutMistitledDiscord(
   } catch (err) {
     console.error(
       "[mistitled:discord] fanOut crashed:",
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+async function fanOutPushLotHot(lot: Lot, userIds: string[]): Promise<void> {
+  try {
+    const payload = buildLotPushPayload("LOT_HOT", {
+      title: lot.title,
+      ebayItemId: lot.ebayItemId,
+      listingPrice: Number(lot.listingPrice),
+      lowEstimate: Number(lot.lowEstimate),
+      highEstimate: Number(lot.highEstimate),
+    });
+    for (const uid of userIds) {
+      await sendPushToUser(uid, payload);
+    }
+  } catch (err) {
+    console.error(
+      "[lotAlerts:push] LOT_HOT fanOut crashed:",
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+async function fanOutPushMistitled(
+  lot: Lot,
+  hiddenUsd: number,
+  userIds: string[]
+): Promise<void> {
+  try {
+    const payload = buildLotPushPayload(
+      "MISTITLED",
+      {
+        title: lot.title,
+        ebayItemId: lot.ebayItemId,
+        listingPrice: Number(lot.listingPrice),
+      },
+      { hiddenUsd }
+    );
+    for (const uid of userIds) {
+      await sendPushToUser(uid, payload);
+    }
+  } catch (err) {
+    console.error(
+      "[mistitled:push] fanOut crashed:",
       err instanceof Error ? err.message : err
     );
   }
