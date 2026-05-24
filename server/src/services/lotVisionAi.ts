@@ -48,6 +48,17 @@ export interface VisionRunResult {
   cacheStatus: "cached" | "partial" | "fresh";
   /** How many images were sent to the Anthropic API on this call (0 = cache hit). */
   imagesProcessed: number;
+  /** How many image API calls threw (credit out, rate limit, transient 5xx). */
+  imagesFailed: number;
+  /**
+   * "ok"            — every attempted call returned (results may still be empty).
+   * "partial-failed"— at least one call succeeded and at least one failed.
+   * "all-failed"    — every attempted call threw; suggestions are empty for
+   *                   provider reasons, not because the photos lack cards.
+   *                   Routes should surface this as 503 so the UI can show
+   *                   "AI temporarily unavailable" instead of "no cards found".
+   */
+  providerStatus: "ok" | "partial-failed" | "all-failed";
 }
 
 // ─── Anthropic client (lazy) ─────────────────────────────────────────────────
@@ -278,7 +289,13 @@ export async function runLotVision(
   opts: { userId?: string } = {}
 ): Promise<VisionRunResult> {
   if (!visionEnabled()) {
-    return { suggestions: [], cacheStatus: "cached", imagesProcessed: 0 };
+    return {
+      suggestions: [],
+      cacheStatus: "cached",
+      imagesProcessed: 0,
+      imagesFailed: 0,
+      providerStatus: "ok",
+    };
   }
 
   const images = await prisma.lotImage.findMany({
@@ -287,7 +304,13 @@ export async function runLotVision(
     select: { id: true, position: true, imageUrl: true, ocrText: true },
   });
   if (images.length === 0) {
-    return { suggestions: [], cacheStatus: "cached", imagesProcessed: 0 };
+    return {
+      suggestions: [],
+      cacheStatus: "cached",
+      imagesProcessed: 0,
+      imagesFailed: 0,
+      providerStatus: "ok",
+    };
   }
 
   const capped = images.slice(0, config.OCR_MAX_IMAGES_PER_LOT);
@@ -295,6 +318,7 @@ export async function runLotVision(
   const suggestions: VisionSuggestion[] = [];
   let processedCount = 0;
   let cachedCount = 0;
+  let failedCount = 0;
 
   for (const img of capped) {
     if (img.ocrText) {
@@ -324,6 +348,7 @@ export async function runLotVision(
       suggestions.push(...imgSuggestions);
       processedCount += 1;
     } catch (err) {
+      failedCount += 1;
       console.error(
         `[lotVisionAi] image position=${img.position} failed:`,
         err instanceof Error ? err.message : err
@@ -337,8 +362,18 @@ export async function runLotVision(
   else if (cachedCount === 0) cacheStatus = "fresh";
   else cacheStatus = "partial";
 
+  // Distinguish "every Anthropic call threw" from "calls succeeded but the
+  // photos legitimately had no identifiable cards". Only count attempted
+  // calls (cache hits don't count toward attempted) — if every cache-miss
+  // image failed and there were no cache hits, that's all-failed.
+  const attempted = processedCount + failedCount;
+  let providerStatus: VisionRunResult["providerStatus"];
+  if (attempted === 0 || failedCount === 0) providerStatus = "ok";
+  else if (processedCount === 0 && cachedCount === 0) providerStatus = "all-failed";
+  else providerStatus = "partial-failed";
+
   console.log(
-    `[lotVisionAi] ebayItemId=${ebayItemId} ${capped.length} images → ${suggestions.length} suggestions (${processedCount} fresh / ${cachedCount} cached)`
+    `[lotVisionAi] ebayItemId=${ebayItemId} ${capped.length} images → ${suggestions.length} suggestions (${processedCount} fresh / ${cachedCount} cached / ${failedCount} failed, status=${providerStatus})`
   );
 
   if (opts.userId) {
@@ -353,7 +388,13 @@ export async function runLotVision(
     }
   }
 
-  return { suggestions, cacheStatus, imagesProcessed: processedCount };
+  return {
+    suggestions,
+    cacheStatus,
+    imagesProcessed: processedCount,
+    imagesFailed: failedCount,
+    providerStatus,
+  };
 }
 
 /**

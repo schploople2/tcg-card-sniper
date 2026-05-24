@@ -78,8 +78,14 @@ export async function runAutoOcrSweep(): Promise<SweepResult> {
       const result = await runLotVision(c.ebayItemId, { userId: SYSTEM_USER_ID });
       processed += 1;
       console.log(
-        `[autoOcrLots] ${c.ebayItemId} → ${result.suggestions.length} suggestions (${result.imagesProcessed} fresh)`
+        `[autoOcrLots] ${c.ebayItemId} → ${result.suggestions.length} suggestions (${result.imagesProcessed} fresh, ${result.imagesFailed} failed, status=${result.providerStatus})`
       );
+      if (result.providerStatus === "all-failed") {
+        // Don't run downstream alert evaluators for a lot whose vision call
+        // completely failed — every suggestion is empty for provider reasons,
+        // not because the photos lack value. Skip to next candidate.
+        continue;
+      }
       // Re-evaluate the lot AFTER the OCR write-back is persisted by the
       // route. We're outside the route, so call the evaluator directly —
       // persistOcrToLot itself isn't reachable from here (it's a private

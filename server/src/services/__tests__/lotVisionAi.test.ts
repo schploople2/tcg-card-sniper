@@ -225,7 +225,13 @@ describe("runLotVision", () => {
   it("returns empty result and no API call when provider disabled", async () => {
     configState.OCR_PROVIDER = "none";
     const result = await runLotVision("ebay-1");
-    expect(result).toEqual({ suggestions: [], cacheStatus: "cached", imagesProcessed: 0 });
+    expect(result).toEqual({
+      suggestions: [],
+      cacheStatus: "cached",
+      imagesProcessed: 0,
+      imagesFailed: 0,
+      providerStatus: "ok",
+    });
     expect(findMany).not.toHaveBeenCalled();
     expect(messagesCreate).not.toHaveBeenCalled();
   });
@@ -354,9 +360,55 @@ describe("runLotVision", () => {
     const result = await runLotVision("ebay-1");
 
     expect(result.imagesProcessed).toBe(1);
+    expect(result.imagesFailed).toBe(1);
+    expect(result.providerStatus).toBe("partial-failed");
     expect(result.suggestions.map((s) => s.name)).toEqual(["eevee"]);
     expect(errSpy).toHaveBeenCalled();
     errSpy.mockRestore();
+  });
+
+  it("reports providerStatus='all-failed' when every API call throws", async () => {
+    findMany.mockResolvedValueOnce([
+      { id: "img-1", position: 0, imageUrl: "https://e/0.jpg", ocrText: null },
+      { id: "img-2", position: 1, imageUrl: "https://e/1.jpg", ocrText: null },
+    ]);
+    messagesCreate
+      .mockRejectedValueOnce(new Error("credit balance too low"))
+      .mockRejectedValueOnce(new Error("credit balance too low"));
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await runLotVision("ebay-1");
+    errSpy.mockRestore();
+
+    expect(result.suggestions).toEqual([]);
+    expect(result.imagesProcessed).toBe(0);
+    expect(result.imagesFailed).toBe(2);
+    expect(result.providerStatus).toBe("all-failed");
+  });
+
+  it("reports providerStatus='ok' when failures coexist with cache hits", async () => {
+    // Cache hits aren't "attempted calls", so a single fail alongside a cache
+    // hit is still partial-failed (the user has SOME results). But with NO
+    // cache hits and only failures, we'd be all-failed (covered above).
+    findMany.mockResolvedValueOnce([
+      {
+        id: "img-1",
+        position: 0,
+        imageUrl: "https://e/0.jpg",
+        ocrText: JSON.stringify({ cards: [{ name: "pikachu", confidence: 0.9 }] }),
+      },
+      { id: "img-2", position: 1, imageUrl: "https://e/1.jpg", ocrText: null },
+    ]);
+    messagesCreate.mockRejectedValueOnce(new Error("anthropic 500"));
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const result = await runLotVision("ebay-1");
+    errSpy.mockRestore();
+
+    expect(result.imagesFailed).toBe(1);
+    // partial-failed by the rule: failedCount > 0 AND (processed > 0 OR cached > 0)
+    expect(result.providerStatus).toBe("partial-failed");
+    expect(result.suggestions.map((s) => s.name)).toEqual(["pikachu"]);
   });
 
   it("caps the number of images at OCR_MAX_IMAGES_PER_LOT", async () => {

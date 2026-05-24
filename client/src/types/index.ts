@@ -267,6 +267,8 @@ export interface LotSuggestionsResponse {
   suggestions: LotSuggestion[];
   cacheStatus: "cached" | "partial" | "fresh";
   imagesProcessed: number;
+  imagesFailed?: number;
+  providerStatus?: "ok" | "partial-failed" | "all-failed";
 }
 
 // ─── Form / mutation payloads ─────────────────────────────────────────────────

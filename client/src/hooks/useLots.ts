@@ -125,8 +125,23 @@ export function useLotSuggestions() {
         data
       );
     },
-    onError: (err: { response?: { status?: number; data?: { error?: string } } }) => {
-      if (err.response?.status === 503) {
+    onError: (err: {
+      response?: {
+        status?: number;
+        data?: { error?: string; providerStatus?: string };
+      };
+    }) => {
+      const status = err.response?.status;
+      const providerStatus = err.response?.data?.providerStatus;
+      if (status === 503 && providerStatus === "all-failed") {
+        // Vision was configured but every per-image call threw (credit out,
+        // upstream 5xx, etc). Distinct from "provider disabled" because the
+        // user CAN retry — surface that.
+        toast.error(
+          err.response?.data?.error ??
+            "AI vision is temporarily unavailable. Please try again later."
+        );
+      } else if (status === 503) {
         toast.info("AI suggestions are not enabled on this server yet.");
       } else {
         toast.error(err.response?.data?.error ?? "Failed to get suggestions");

@@ -46,6 +46,10 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
   const saveAnnotation = useSaveAnnotation();
   const suggestionsMutation = useLotSuggestions();
   const [suggestions, setSuggestions] = useState<LotSuggestion[] | null>(null);
+  const [suggestionsWarning, setSuggestionsWarning] = useState<string | null>(null);
+  // True when the last call was an all-failed 503 — distinguishes "AI is down,
+  // retry" from "vision returned legitimately empty results" in the panel.
+  const [aiTemporarilyDown, setAiTemporarilyDown] = useState(false);
   const [acceptedSuggestionKeys, setAcceptedSuggestionKeys] = useState<Set<string>>(
     new Set()
   );
@@ -91,6 +95,8 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
     // Reset AI suggestions whenever the active lot changes — they're
     // per-listing and would mislead if leaked across analyses.
     setSuggestions(null);
+    setSuggestionsWarning(null);
+    setAiTemporarilyDown(false);
     setAcceptedSuggestionKeys(new Set());
     setPickedCardIdByName({});
     setOpenPickerName(null);
@@ -125,8 +131,31 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
 
   function handleRequestSuggestions() {
     if (!lot) return;
+    setAiTemporarilyDown(false);
+    setSuggestionsWarning(null);
     suggestionsMutation.mutate(lot.ebayItemId, {
-      onSuccess: (data) => setSuggestions(data.suggestions),
+      onSuccess: (data) => {
+        setSuggestions(data.suggestions);
+        // partial-failed means some images succeeded and some threw — keep
+        // what we got and note the gap so the user knows results are partial.
+        if (data.providerStatus === "partial-failed" && data.imagesFailed) {
+          setSuggestionsWarning(
+            `${data.imagesFailed} of ${data.imagesProcessed + data.imagesFailed} photos couldn't be analyzed. Results may be incomplete.`
+          );
+        }
+      },
+      onError: (err: {
+        response?: { status?: number; data?: { providerStatus?: string } };
+      }) => {
+        // The 503 toast is fired by the hook; flip local state so the panel
+        // shows a retry affordance instead of the "Suggest cards" button.
+        if (
+          err.response?.status === 503 &&
+          err.response.data?.providerStatus === "all-failed"
+        ) {
+          setAiTemporarilyDown(true);
+        }
+      },
     });
   }
 
@@ -341,7 +370,25 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
                     </button>
                   )}
                 </div>
-                {suggestions === null ? (
+                {aiTemporarilyDown ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-amber-400">
+                      AI vision is temporarily unavailable. Please try again
+                      later.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={suggestionsMutation.isPending || images.length === 0}
+                      onClick={handleRequestSuggestions}
+                      className="text-xs text-slate-300 hover:text-white hover:bg-slate-800 gap-1.5 h-auto py-1.5 px-2.5"
+                    >
+                      <Sparkles className="h-3.5 w-3.5" />
+                      {suggestionsMutation.isPending ? "Retrying…" : "Retry"}
+                    </Button>
+                  </div>
+                ) : suggestions === null ? (
                   <Button
                     type="button"
                     variant="ghost"
@@ -361,7 +408,13 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
                     No cards identified in the photos.
                   </p>
                 ) : (
-                  <div className="flex flex-wrap gap-1.5">
+                  <div className="space-y-2">
+                    {suggestionsWarning && (
+                      <p className="text-[11px] text-amber-400">
+                        {suggestionsWarning}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-1.5">
                     {suggestions.map((s) => (
                       <SuggestionChip
                         key={`${s.name}-${s.sourceImagePosition ?? "?"}`}
@@ -377,6 +430,7 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
                         onSearch={handleSearchFromSuggestion}
                       />
                     ))}
+                    </div>
                   </div>
                 )}
               </div>

@@ -416,6 +416,20 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
     await getLotImages(req.params.ebayItemId);
 
     const result = await runLotVision(req.params.ebayItemId, { userId });
+
+    // If every attempted vision call threw (credit exhausted, rate limit,
+    // upstream 5xx), surface that as 503 so the UI can render "AI
+    // temporarily unavailable" instead of the indistinguishable
+    // "no cards identified". Partial failures still return 200 with
+    // whatever we got plus a warning the UI can display.
+    if (result.providerStatus === "all-failed") {
+      return res.status(503).json({
+        error:
+          "AI vision is temporarily unavailable. Please try again later.",
+        providerStatus: result.providerStatus,
+        imagesFailed: result.imagesFailed,
+      });
+    }
     const merged = dedupeSuggestions(result.suggestions);
 
     // Resolve each suggested name to catalog Card rows + price candidates
@@ -491,6 +505,8 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
       suggestions,
       cacheStatus: result.cacheStatus,
       imagesProcessed: result.imagesProcessed,
+      imagesFailed: result.imagesFailed,
+      providerStatus: result.providerStatus,
       lotUpdate,
       usage,
     });
