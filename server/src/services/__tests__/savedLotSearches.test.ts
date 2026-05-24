@@ -62,20 +62,40 @@ describe("matchesQuery — AND semantics", () => {
   });
 });
 
+// Prisma's Decimal type is annoying to construct in tests; helpers under
+// test only ever call Number() on these values, so cast to `any` and rely
+// on runtime behavior. This is intentional test-only laxness.
+type FilterableLot = { lowEstimate: number; listingPrice: number };
+type FilterableSearch = {
+  minLowEstimate: number | null;
+  maxAskingPrice: number | null;
+};
+
 describe("passesFilters", () => {
-  const lot = { lowEstimate: 50 as unknown, listingPrice: 20 as unknown };
+  const lot: FilterableLot = { lowEstimate: 50, listingPrice: 20 };
   it("passes when no filters set", () => {
-    expect(passesFilters(lot, { minLowEstimate: null, maxAskingPrice: null })).toBe(
-      true
-    );
+    expect(
+      passesFilters(lot as never, {
+        minLowEstimate: null,
+        maxAskingPrice: null,
+      } as never)
+    ).toBe(true);
   });
   it("respects minLowEstimate floor", () => {
-    expect(passesFilters(lot, { minLowEstimate: 40 as unknown, maxAskingPrice: null })).toBe(true);
-    expect(passesFilters(lot, { minLowEstimate: 100 as unknown, maxAskingPrice: null })).toBe(false);
+    expect(
+      passesFilters(lot as never, { minLowEstimate: 40, maxAskingPrice: null } as never)
+    ).toBe(true);
+    expect(
+      passesFilters(lot as never, { minLowEstimate: 100, maxAskingPrice: null } as never)
+    ).toBe(false);
   });
   it("respects maxAskingPrice ceiling", () => {
-    expect(passesFilters(lot, { minLowEstimate: null, maxAskingPrice: 25 as unknown })).toBe(true);
-    expect(passesFilters(lot, { minLowEstimate: null, maxAskingPrice: 10 as unknown })).toBe(false);
+    expect(
+      passesFilters(lot as never, { minLowEstimate: null, maxAskingPrice: 25 } as never)
+    ).toBe(true);
+    expect(
+      passesFilters(lot as never, { minLowEstimate: null, maxAskingPrice: 10 } as never)
+    ).toBe(false);
   });
 });
 
@@ -92,15 +112,15 @@ describe("matchUsersForLot", () => {
     savedLotSearchFindMany.mockResolvedValue([
       { userId: "user-1", query: "charizard 1st", minLowEstimate: null, maxAskingPrice: null },
       { userId: "user-2", query: "pikachu", minLowEstimate: null, maxAskingPrice: null },
-      { userId: "user-3", query: "charizard", minLowEstimate: 200, maxAskingPrice: null }, // floor too high
+      { userId: "user-3", query: "charizard", minLowEstimate: 200, maxAskingPrice: null },
     ]);
     const lot = {
       title: "Pokemon Charizard 1st Edition Lot",
-      lowEstimate: 100 as unknown,
-      listingPrice: 50 as unknown,
-    };
+      lowEstimate: 100,
+      listingPrice: 50,
+    } as never;
     const ids = await matchUsersForLot(lot);
-    expect(ids.sort()).toEqual(["user-1"]); // user-2 query doesn't match; user-3 floor blocks
+    expect(ids.sort()).toEqual(["user-1"]);
   });
 
   it("dedupes when a user has multiple matching searches", async () => {
@@ -110,9 +130,9 @@ describe("matchUsersForLot", () => {
     ]);
     const lot = {
       title: "Pokemon Charizard 1st Edition Lot",
-      lowEstimate: 100 as unknown,
-      listingPrice: 50 as unknown,
-    };
+      lowEstimate: 100,
+      listingPrice: 50,
+    } as never;
     const ids = await matchUsersForLot(lot);
     expect(ids).toEqual(["user-1"]);
   });
@@ -123,9 +143,9 @@ describe("matchUsersForLot", () => {
     ]);
     const ids = await matchUsersForLot({
       title: "Pokemon Charizard Lot",
-      lowEstimate: 100 as unknown,
-      listingPrice: 50 as unknown,
-    });
+      lowEstimate: 100,
+      listingPrice: 50,
+    } as never);
     expect(ids).toEqual([]);
   });
 });
