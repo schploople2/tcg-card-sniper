@@ -1,0 +1,162 @@
+import type { Lot } from "@prisma/client";
+import { AlertKind } from "@prisma/client";
+import { prisma } from "../db.js";
+import {
+  buildLotAlertEmbed,
+  postToDiscord,
+  type LotAlertEmbedInput,
+} from "./discordNotifier.js";
+
+/**
+ * A1 — Lot-tied alerts.
+ *
+ * Called after every OCR write-back (persistOcrToLot). Checks whether the
+ * lot's freshly-computed value range justifies firing a LOT_HOT alert and,
+ * if so, creates one Alert row per opted-in user and fans out via the
+ * existing Discord webhook pipeline (B1).
+ *
+ * Threshold criteria (must all hold):
+ *   - lot.lotTier === "HOT"  → already filters for ≥25% headline savings
+ *   - lot.lowEstimate ≥ FLOOR_MULTIPLE × lot.listingPrice
+ *   - lot.lowEstimate ≥ MIN_LOW_USD (don't fire for $1 lots even at 10×)
+ *   - dedup: at most one LOT_HOT per (user, lotEbayItemId, kind) — enforced
+ *     by the unique index Alert_userId_lotEbayItemId_kind_key.
+ *
+ * v1 fires for ALL users (no per-user opt-out beyond the future saved-search
+ * filter in B4). Single-user dev today; multi-user gating belongs with B4.
+ */
+
+const FLOOR_MULTIPLE = 2.0;
+const MIN_LOW_USD = 20;
+
+export interface LotAlertEvalResult {
+  /** Did the lot qualify after the threshold check? */
+  qualified: boolean;
+  /** Number of Alert rows actually created (after dedup). */
+  alertsCreated: number;
+}
+
+export async function evaluateLotAfterOcr(
+  ebayItemId: string
+): Promise<LotAlertEvalResult> {
+  const lot = await prisma.lot.findUnique({ where: { ebayItemId } });
+  if (!lot) return { qualified: false, alertsCreated: 0 };
+
+  const lowEstimate = Number(lot.lowEstimate);
+  const listingPrice = Number(lot.listingPrice);
+
+  if (lot.lotTier !== "HOT") return { qualified: false, alertsCreated: 0 };
+  if (lowEstimate < MIN_LOW_USD) return { qualified: false, alertsCreated: 0 };
+  if (listingPrice <= 0) return { qualified: false, alertsCreated: 0 };
+  if (lowEstimate < FLOOR_MULTIPLE * listingPrice) {
+    return { qualified: false, alertsCreated: 0 };
+  }
+
+  // Fire one Alert per user. v1 = every user; B4 saved searches will scope.
+  const users = await prisma.user.findMany({ select: { id: true } });
+  if (users.length === 0) return { qualified: true, alertsCreated: 0 };
+
+  const candidates = users.map((u) => ({
+    userId: u.id,
+    lotEbayItemId: ebayItemId,
+    kind: AlertKind.LOT_HOT,
+  }));
+
+  // Find which alerts already exist BEFORE the insert (so we know which
+  // are novel for Discord fan-out — same pattern as services/alerts.ts).
+  const existing = await prisma.alert.findMany({
+    where: {
+      lotEbayItemId: ebayItemId,
+      kind: AlertKind.LOT_HOT,
+      userId: { in: users.map((u) => u.id) },
+    },
+    select: { userId: true },
+  });
+  const existingByUser = new Set(existing.map((e) => e.userId));
+  const novel = candidates.filter((c) => !existingByUser.has(c.userId));
+
+  const result = await prisma.alert.createMany({
+    data: candidates,
+    skipDuplicates: true,
+  });
+
+  if (novel.length > 0) {
+    void fanOutDiscord(
+      lot,
+      novel.map((n) => n.userId)
+    );
+  }
+
+  return { qualified: true, alertsCreated: result.count };
+}
+
+/**
+ * Look up Discord webhook URLs for each user, build the LOT_HOT embed
+ * from the lot row, and POST. Best-effort — errors logged, never
+ * propagated. Mirrors fanOutDiscord in services/alerts.ts.
+ */
+async function fanOutDiscord(lot: Lot, userIds: string[]): Promise<void> {
+  try {
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, discordWebhookUrl: true },
+    });
+
+    // Build embed once — same lot for all users.
+    interface ParsedCardLite {
+      name?: unknown;
+      candidates?: unknown;
+    }
+    interface CandidateLite {
+      market?: unknown;
+    }
+    const parsedCards: ParsedCardLite[] = Array.isArray(lot.parsedCards)
+      ? (lot.parsedCards as ParsedCardLite[])
+      : [];
+    // Top cards by max-market candidate — gives Discord viewers a quick
+    // "what's actually inside" preview without scrolling the full list.
+    const ranked = parsedCards
+      .map((p) => {
+        const cands: CandidateLite[] = Array.isArray(p.candidates)
+          ? (p.candidates as CandidateLite[])
+          : [];
+        const maxMarket = cands.reduce<number>((m, c) => {
+          const v = typeof c.market === "number" ? c.market : 0;
+          return v > m ? v : m;
+        }, 0);
+        const name = typeof p.name === "string" ? p.name : null;
+        return { name, maxMarket };
+      })
+      .filter((r): r is { name: string; maxMarket: number } => !!r.name)
+      .sort((a, b) => b.maxMarket - a.maxMarket);
+
+    const embedInput: LotAlertEmbedInput = {
+      lotTitle: lot.title,
+      lotUrl: lot.ebayUrl,
+      imageUrl: lot.imageUrl ?? null,
+      askingPrice: Number(lot.listingPrice),
+      lowEstimate: Number(lot.lowEstimate),
+      highEstimate: Number(lot.highEstimate),
+      parsedCardCount: parsedCards.length,
+      topCardNames: ranked.slice(0, 6).map((r) => r.name),
+    };
+    const payload = buildLotAlertEmbed(embedInput);
+
+    for (const u of users) {
+      if (!u.discordWebhookUrl) continue;
+      const result = await postToDiscord(u.discordWebhookUrl, payload);
+      if (!result.ok) {
+        console.error(
+          `[lotAlerts:discord] user=${u.id} lot=${lot.ebayItemId} failed: ${
+            result.error ?? `status ${result.status}`
+          }`
+        );
+      }
+    }
+  } catch (err) {
+    console.error(
+      "[lotAlerts:discord] fanOutDiscord crashed:",
+      err instanceof Error ? err.message : err
+    );
+  }
+}

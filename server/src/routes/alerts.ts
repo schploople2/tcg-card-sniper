@@ -58,7 +58,11 @@ alertsRouter.get("/", async (req, res, next) => {
       },
     });
 
-    const listingIds = alerts.map((a) => a.listingId);
+    // A1: alerts can now be lot-tied (listingId NULL) — skip those when
+    // fetching listing snapshots.
+    const listingIds = alerts
+      .map((a) => a.listingId)
+      .filter((id): id is string => id !== null);
     const listings = listingIds.length
       ? await prisma.listing.findMany({
           where: { id: { in: listingIds } },
@@ -81,7 +85,7 @@ alertsRouter.get("/", async (req, res, next) => {
 
     res.json({
       alerts: alerts.map((a) => {
-        const listing = listingById.get(a.listingId) ?? null;
+        const listing = a.listingId ? listingById.get(a.listingId) ?? null : null;
         return {
           id: a.id,
           kind: a.kind,
@@ -89,7 +93,9 @@ alertsRouter.get("/", async (req, res, next) => {
           createdAt: a.createdAt,
           card: a.card,
           listing,
-          listingExpired: listing === null,
+          // A1: include lot pointer when this is a lot-tied alert.
+          lotEbayItemId: a.lotEbayItemId,
+          listingExpired: a.listingId !== null && listing === null,
         };
       }),
     });

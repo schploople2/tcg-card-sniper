@@ -12,6 +12,7 @@ import {
   mergeTitleAndVisionParsed,
   reValueWithAnnotation,
 } from "../services/lotValuation.js";
+import { evaluateLotAfterOcr } from "../services/lotAlerts.js";
 import { searchEbayLots } from "../services/ebay.js";
 import { getLotImages } from "../services/lotImages.js";
 import {
@@ -462,6 +463,16 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
     // overlay) stays untouched — this only refreshes the public auto-parsed
     // view of the lot.
     const lotUpdate = await persistOcrToLot(req.params.ebayItemId, merged);
+
+    // A1 — fire LOT_HOT alerts (in-app + Discord) when the refreshed
+    // valuation crosses the threshold. Fire-and-forget so user-facing
+    // OCR responses aren't blocked on user/listing lookups.
+    void evaluateLotAfterOcr(req.params.ebayItemId).catch((err) =>
+      console.error(
+        "[lots] evaluateLotAfterOcr failed:",
+        err instanceof Error ? err.message : err
+      )
+    );
 
     // Surface post-call usage so the modal can render "N of M images today".
     const usage = await getTodayUsage(userId);

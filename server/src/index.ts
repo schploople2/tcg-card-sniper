@@ -15,6 +15,7 @@ import { settingsRouter } from "./routes/settings.js";
 import { startRefreshJob } from "./jobs/refreshListings.js";
 import { startSnapshotJob } from "./jobs/snapshotPrices.js";
 import { startSyncCatalogJob } from "./jobs/syncCatalog.js";
+import { startAutoOcrJob } from "./jobs/autoOcrLots.js";
 import { prisma } from "./db.js";
 
 const app = express();
@@ -62,6 +63,7 @@ async function main() {
   console.log("📈  Daily price snapshot job scheduled");
   startSyncCatalogJob();
   console.log("📚  Weekly catalog sync job scheduled");
+  startAutoOcrJob();
 
   app.listen(config.PORT, () => {
     console.log(`🚀  Server running on port ${config.PORT} [${config.NODE_ENV}]`);

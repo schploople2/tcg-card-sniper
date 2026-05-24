@@ -53,6 +53,10 @@ enum ListingKind {
 enum AlertKind {
   TARGET_HIT
   HOT_DEAL
+  /// A1 — auto-OCR'd lot whose Vision-derived low-estimate is significantly
+  /// higher than the asking price (currently: lowEstimate ≥ 2× listingPrice
+  /// AND lotTier == HOT). References Alert.lotEbayItemId instead of cardId.
+  LOT_HOT
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -133,9 +137,18 @@ model Alert {
   id        String   @id @default(cuid())
   /// Denormalised — saves a join when surfacing alerts to a user.
   userId    String
-  cardId    String
-  listingId String
+  /// For TARGET_HIT / HOT_DEAL alerts (single-card watch matches). NULL for
+  /// LOT_HOT — those reference lotEbayItemId instead. Exactly one of
+  /// cardId / lotEbayItemId is set on every row; the application-layer
+  /// alert services enforce this invariant.
+  cardId    String?
+  listingId String?
   kind      AlertKind
+
+  /// A1 — references Lot.ebayItemId for LOT_HOT alerts. NULL for card-tied
+  /// kinds. No FK to Lot; lots have a 30-min TTL and cascade-delete would
+  /// erase alert history every time a lot rotates. UI joins lazily.
+  lotEbayItemId String?
 
   /// When the in-app notification was marked read (P4). null = unread.
   readAt      DateTime?
@@ -145,13 +158,16 @@ model Alert {
   deliveredAt DateTime?
   createdAt   DateTime @default(now())
 
-  user    User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  card    WatchedCard @relation(fields: [cardId], references: [id], onDelete: Cascade)
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card    WatchedCard? @relation(fields: [cardId], references: [id], onDelete: Cascade)
   /// We don't FK to Listing — listings are short-lived (30-min TTL) and
   /// cascade-delete would erase alert history every time a listing rotates.
   /// Store the ebayItemId-derived id as plain text; UI joins lazily.
 
   @@unique([cardId, listingId, kind])
+  /// Dedup lot alerts per-user — at most one LOT_HOT per (user, lot, kind),
+  /// even if the lot's OCR is re-run.
+  @@unique([userId, lotEbayItemId, kind])
   @@index([userId, readAt])
   @@index([createdAt])
 }

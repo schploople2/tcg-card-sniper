@@ -68,6 +68,7 @@ const TIER_COLORS: Record<string, number> = {
 const KIND_LABEL: Record<AlertKind, string> = {
   TARGET_HIT: "🎯 Target price hit",
   HOT_DEAL: "🔥 Hot deal",
+  LOT_HOT: "💎 Under-priced lot",
 };
 
 /**
@@ -167,6 +168,69 @@ export async function postToDiscord(
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ─── Lot alerts (A1) ─────────────────────────────────────────────────────────
+
+export interface LotAlertEmbedInput {
+  /** eBay listing title (the lot's title). */
+  lotTitle: string;
+  lotUrl: string;
+  /** Listing thumbnail URL — eBay's hero shot for this lot. */
+  imageUrl: string | null;
+  askingPrice: number;
+  lowEstimate: number;
+  highEstimate: number;
+  /** Number of distinct parsed-card entries found by Vision OCR. */
+  parsedCardCount: number;
+  /** Optional preview list of top card names by market value, e.g.
+   *  ["Mew VMAX", "Suicune V"] — rendered in a "Top cards" field. */
+  topCardNames: string[];
+}
+
+/**
+ * A1 — embed for LOT_HOT alerts. Visually distinct from card alerts
+ * (purple border, 💎 emoji) so they're easy to scan in a busy channel.
+ */
+export function buildLotAlertEmbed(input: LotAlertEmbedInput): Record<string, unknown> {
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = [
+    { name: "Asking", value: `$${input.askingPrice.toFixed(2)}`, inline: true },
+    { name: "Low est.", value: `$${input.lowEstimate.toFixed(2)}`, inline: true },
+    { name: "High est.", value: `$${input.highEstimate.toFixed(2)}`, inline: true },
+    {
+      name: "Cards parsed",
+      value: String(input.parsedCardCount),
+      inline: true,
+    },
+  ];
+  if (input.lowEstimate > 0 && input.askingPrice > 0) {
+    const multiple = input.lowEstimate / input.askingPrice;
+    fields.push({
+      name: "Floor multiple",
+      value: `${multiple.toFixed(1)}×`,
+      inline: true,
+    });
+  }
+  if (input.topCardNames.length > 0) {
+    fields.push({
+      name: "Top cards",
+      value: input.topCardNames.slice(0, 6).join(", ").slice(0, 1024),
+    });
+  }
+  return {
+    username: "TCG Card Sniper",
+    embeds: [
+      {
+        title: input.lotTitle.slice(0, 256),
+        url: input.lotUrl,
+        description: `**${KIND_LABEL.LOT_HOT}** — worth $${input.lowEstimate.toFixed(0)}–$${input.highEstimate.toFixed(0)} vs $${input.askingPrice.toFixed(0)} asking`,
+        color: 0x9c27b0, // purple — distinct from HOT_DEAL orange
+        fields,
+        thumbnail: input.imageUrl ? { url: input.imageUrl } : undefined,
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  };
 }
 
 /**
