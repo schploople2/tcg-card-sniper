@@ -56,6 +56,19 @@ Real-world incident that surfaced mid-session: NODE_ENV=production on Railway se
 
 Client service had a deeper structural problem: it was using the SHARED `/railway.json` (server's config). Even setting `rootDirectory` / `railwayConfigFile` / `buildCommand` overrides via the GraphQL `serviceInstanceUpdate` mutation didn't take effect — Railway kept reading root `/railway.json`. Working fix: set buildCommand/startCommand overrides on the service via API, then deploy with `railway up ./client --path-as-root --service client` so only `client/` is the build context. Client now serving HTTP 200 at https://poke-sniper.up.railway.app/. Issues `tcg-card-sniper-dev-nf4` and `tcg-card-sniper-dev-tdj` closed.
 
+### Phase 10 — B1 Discord webhook for alerts `status: complete`
+First feature pulled from the Phase 9 ICE-sorted backlog (highest score, 150). Shipped end-to-end:
+
+- **Schema**: `User.discordWebhookUrl String?` (migration 20260524010000_discord_webhook_url, applied live)
+- **Server**: `services/discordNotifier.ts` (URL validation, redaction, embed builder with tier colors, fire-and-forget POST with 5s timeout) + `routes/settings.ts` (GET/PUT redacted, POST /test-webhook) + wiring in `services/alerts.ts` (pre-check existing alerts → fan-out only novel ones)
+- **Client**: `/settings` route + page with "Send test" / "Remove" actions, redacted "saved" pill, Discord-docs link
+- **Tests**: 17 new discord notifier tests + alerts mock extensions. Server 219/219, client 8/8
+- **Verified live**: `/settings` page renders at https://poke-sniper.up.railway.app/settings, migration ran on server boot, `/api/settings` returns the right shape
+
+Commits: c040419 (feature) + ef6b630 (bead close).
+
+Cannot fully verify webhook firing without a real Discord URL — that's the user's hands-on confirmation step.
+
 ### Phase 9 — Roadmap research & ICE backlog `status: complete`
 Researched the competitive landscape (PriceCharting Snipe, PokeBid Scout, Discord bots PokeSnipe/Pallet/PokeTCG Deals, 130point, Collectr, Manabox, Gixen, SnapGradeAI etc.) and synthesized 18 candidate features across 5 themes:
 
