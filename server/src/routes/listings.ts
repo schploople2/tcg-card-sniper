@@ -6,7 +6,7 @@ import { AppError } from "../middleware/errorHandler.js";
 import { searchEbayListings } from "../services/ebay.js";
 import { fetchCardById } from "../services/pokemontcg.js";
 import { scoreAndSort } from "../services/dealScore.js";
-import { evaluateListings } from "../services/alerts.js";
+import { evaluateListings, evaluateListingsForWatchedSellers } from "../services/alerts.js";
 import {
   resolveMarketPrice,
   variantToEbayKeyword,
@@ -215,7 +215,13 @@ listingsRouter.get("/:cardId", async (req, res, next) => {
     // kind) unique index so repeated refreshes of the same HOT listing don't
     // spam alert rows. Awaited (not fire-and-forget) so we can include the
     // count in the response — useful for the UI to flash "N new alerts".
-    const alertsCreated = await evaluateListings(card, freshListings);
+    let alertsCreated = await evaluateListings(card, freshListings);
+    // D2: also evaluate against WatchedSeller rows so the user's manual
+    // refresh fires SELLER_LISTING alerts alongside the standard
+    // TARGET_HIT / HOT_DEAL kinds.
+    alertsCreated += await evaluateListingsForWatchedSellers(
+      freshListings.map((l) => ({ id: l.id, seller: l.seller }))
+    );
 
     res.json({
       listings: freshListings,
