@@ -6,6 +6,7 @@ import {
   postToDiscord,
   type LotAlertEmbedInput,
 } from "./discordNotifier.js";
+import { matchUsersForLot } from "./savedLotSearches.js";
 
 /**
  * A1 — Lot-tied alerts.
@@ -60,12 +61,18 @@ export async function evaluateLotAfterOcr(
     return { qualified: false, alertsCreated: 0 };
   }
 
-  // Fire one Alert per user. v1 = every user; B4 saved searches will scope.
-  const users = await prisma.user.findMany({ select: { id: true } });
-  if (users.length === 0) return { qualified: true, alertsCreated: 0 };
+  // B4 — fire only to users whose SavedLotSearch matches this lot.
+  // Replaces the v1 "fire to every user" behavior; users with no saved
+  // searches get no lot alerts (the opt-in model).
+  const userIds = await matchUsersForLot({
+    title: lot.title,
+    lowEstimate: lot.lowEstimate,
+    listingPrice: lot.listingPrice,
+  });
+  if (userIds.length === 0) return { qualified: true, alertsCreated: 0 };
 
-  const candidates = users.map((u) => ({
-    userId: u.id,
+  const candidates = userIds.map((id) => ({
+    userId: id,
     lotEbayItemId: ebayItemId,
     kind: AlertKind.LOT_HOT,
   }));
@@ -76,7 +83,7 @@ export async function evaluateLotAfterOcr(
     where: {
       lotEbayItemId: ebayItemId,
       kind: AlertKind.LOT_HOT,
-      userId: { in: users.map((u) => u.id) },
+      userId: { in: userIds },
     },
     select: { userId: true },
   });

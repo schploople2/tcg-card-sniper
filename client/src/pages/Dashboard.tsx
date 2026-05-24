@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { ExternalLink, RefreshCw, Flame, TrendingUp, Clock, Search } from "lucide-react";
+import { ExternalLink, RefreshCw, Flame, TrendingUp, Clock, Search, BookmarkPlus } from "lucide-react";
 import { PageShell } from "@/components/layout/PageShell";
 import { DealScoreBadge } from "@/components/shared/DealScoreBadge";
 import { CountdownTimer } from "@/components/shared/CountdownTimer";
@@ -8,6 +8,7 @@ import { CardDetailDrawer } from "@/components/shared/CardDetailDrawer";
 import { LotCard } from "@/components/shared/LotCard";
 import { LotAnalyzerModal } from "@/components/shared/LotAnalyzerModal";
 import { useLotSearch } from "@/hooks/useLots";
+import { useCreateSavedLotSearch } from "@/hooks/useSavedLotSearches";
 import type { Lot } from "@/types";
 import { useAllListings, useRefreshAllListings } from "@/hooks/useListings";
 import { useCards } from "@/hooks/useCards";
@@ -590,6 +591,15 @@ function LotsTabBody({ query, setQuery, onSubmit, response, isLoading, onAnalyze
   const lots = response?.lots ?? [];
   const hasSearched = response !== null;
 
+  // B4 — let the user persist the current query so it scopes future
+  // LOT_HOT alerts.
+  const createSaved = useCreateSavedLotSearch();
+  const handleSaveSearch = () => {
+    const q = query.trim();
+    if (q.length < 2) return;
+    createSaved.mutate({ query: q });
+  };
+
   return (
     <div>
       <form
@@ -614,6 +624,17 @@ function LotsTabBody({ query, setQuery, onSubmit, response, isLoading, onAnalyze
           disabled={isLoading || query.trim().length < 2}
         >
           {isLoading ? "Searching…" : "Search"}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          onClick={handleSaveSearch}
+          disabled={query.trim().length < 2 || createSaved.isPending}
+          title="Save this query so future matching lots fire LOT_HOT alerts"
+          className="text-slate-300 hover:text-purple-300 hover:bg-slate-800"
+        >
+          <BookmarkPlus className="h-4 w-4 mr-1.5" />
+          {createSaved.isPending ? "Saving…" : "Save"}
         </Button>
       </form>
 

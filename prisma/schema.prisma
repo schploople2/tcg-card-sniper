@@ -79,10 +79,48 @@ model User {
   /// `…/last10chars` so the value can't leak via XSS to a third party.
   discordWebhookUrl String?
 
-  watchedCards   WatchedCard[]
-  alerts         Alert[]
-  lotAnnotations LotAnnotation[]
-  ocrUsage       OcrUsage[]
+  watchedCards    WatchedCard[]
+  alerts          Alert[]
+  lotAnnotations  LotAnnotation[]
+  ocrUsage        OcrUsage[]
+  savedLotSearches SavedLotSearch[]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SavedLotSearch — B4: persisted lot search queries that scope A1 alerts
+// per-user. The hourly :45 cron re-runs each saved search against eBay so
+// new matching lots land in the DB; A4's :15 sweep OCRs them; A1's
+// evaluator fires LOT_HOT alerts only to the users whose saved search
+// matches that lot's title (optionally filtered by lowEstimate floor or
+// asking-price ceiling).
+//
+// Replaces the old "A1 fires globally to every user" v1 behavior — alerts
+// are now opt-in via a save. Users with zero saves get no lot alerts.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model SavedLotSearch {
+  id              String    @id @default(cuid())
+  userId          String
+  /// Freetext query the user typed into the Lots search box (e.g.
+  /// "charizard 1st edition lot"). Compared case-insensitively against
+  /// Lot.title in matchUsersForLot — every space-separated token must
+  /// appear somewhere in the title.
+  query           String
+  /// Optional alert floor — only fire when Lot.lowEstimate ≥ this value
+  /// (overrides the global LOT_ALERT_MIN_LOW_USD env for this saved
+  /// search only). Null = use the global default.
+  minLowEstimate  Decimal?  @db.Decimal(10, 2)
+  /// Optional alert ceiling — skip lots whose listingPrice exceeds this,
+  /// useful for users who only care about lots in a particular price band.
+  maxAskingPrice  Decimal?  @db.Decimal(10, 2)
+  createdAt       DateTime  @default(now())
+  /// Bumped each time the cron evaluates this search.
+  lastEvaluatedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, query])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

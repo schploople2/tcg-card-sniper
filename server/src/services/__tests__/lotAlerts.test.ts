@@ -11,12 +11,15 @@ const lotFindUnique = vi.fn();
 const userFindMany = vi.fn();
 const alertFindMany = vi.fn();
 const alertCreateMany = vi.fn();
+// B4: lotAlerts now scopes via SavedLotSearch instead of all users.
+const savedLotSearchFindMany = vi.fn();
 
 vi.mock("../../db.js", () => ({
   prisma: {
     lot: { findUnique: lotFindUnique },
     user: { findMany: userFindMany },
     alert: { findMany: alertFindMany, createMany: alertCreateMany },
+    savedLotSearch: { findMany: savedLotSearchFindMany },
   },
 }));
 
@@ -40,10 +43,12 @@ beforeEach(() => {
   alertFindMany.mockReset();
   alertCreateMany.mockReset();
   postToDiscord.mockReset();
+  savedLotSearchFindMany.mockReset();
   // sensible defaults
   alertFindMany.mockResolvedValue([]);
   alertCreateMany.mockResolvedValue({ count: 0 });
   userFindMany.mockResolvedValue([]);
+  savedLotSearchFindMany.mockResolvedValue([]);
   postToDiscord.mockResolvedValue({ ok: true, status: 204 });
 });
 
@@ -75,10 +80,13 @@ function lotFixture(over: Partial<{
 describe("evaluateLotAfterOcr — threshold", () => {
   it("fires when lot is HOT and low estimate ≥ 2× listing price ≥ MIN_LOW", async () => {
     lotFindUnique.mockResolvedValue(lotFixture({ listingPrice: 50, lowEstimate: 200 }));
-    userFindMany.mockResolvedValueOnce([{ id: "user-1" }]); // alert evaluator
+    // B4: user-1 has a saved search matching the lot title "Big lot"
+    savedLotSearchFindMany.mockResolvedValue([
+      { userId: "user-1", query: "big", minLowEstimate: null, maxAskingPrice: null },
+    ]);
     userFindMany.mockResolvedValueOnce([
       { id: "user-1", discordWebhookUrl: "https://discord.com/api/webhooks/1/abc" },
-    ]); // fan-out
+    ]); // fan-out lookup
 
     alertCreateMany.mockResolvedValue({ count: 1 });
 
@@ -128,10 +136,11 @@ describe("evaluateLotAfterOcr — threshold", () => {
 describe("evaluateLotAfterOcr — fan-out dedup", () => {
   it("only fans out to users without a pre-existing LOT_HOT for this lot", async () => {
     lotFindUnique.mockResolvedValue(lotFixture());
-    userFindMany.mockResolvedValueOnce([
-      { id: "user-1" },
-      { id: "user-2" },
-    ]); // evaluator
+    // B4: both users have a saved search matching "Big lot"
+    savedLotSearchFindMany.mockResolvedValue([
+      { userId: "user-1", query: "big", minLowEstimate: null, maxAskingPrice: null },
+      { userId: "user-2", query: "big", minLowEstimate: null, maxAskingPrice: null },
+    ]);
     alertFindMany.mockResolvedValue([{ userId: "user-1" }]); // user-1 already has one
     userFindMany.mockResolvedValueOnce([
       { id: "user-2", discordWebhookUrl: "https://discord.com/api/webhooks/2/abc" },
@@ -149,9 +158,9 @@ describe("evaluateLotAfterOcr — fan-out dedup", () => {
     );
   });
 
-  it("doesn't crash when no users are configured (multi-user not yet shipped)", async () => {
+  it("doesn't fire when no SavedLotSearch matches this lot (B4 opt-in)", async () => {
     lotFindUnique.mockResolvedValue(lotFixture());
-    userFindMany.mockResolvedValueOnce([]);
+    savedLotSearchFindMany.mockResolvedValue([]); // no saves anywhere
     const result = await evaluateLotAfterOcr("ebay-1");
     expect(result.qualified).toBe(true);
     expect(result.alertsCreated).toBe(0);
@@ -160,7 +169,9 @@ describe("evaluateLotAfterOcr — fan-out dedup", () => {
 
   it("skips Discord fan-out when the user hasn't configured a webhook URL", async () => {
     lotFindUnique.mockResolvedValue(lotFixture());
-    userFindMany.mockResolvedValueOnce([{ id: "user-1" }]);
+    savedLotSearchFindMany.mockResolvedValue([
+      { userId: "user-1", query: "big", minLowEstimate: null, maxAskingPrice: null },
+    ]);
     userFindMany.mockResolvedValueOnce([
       { id: "user-1", discordWebhookUrl: null },
     ]);

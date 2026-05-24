@@ -12,10 +12,12 @@ import { ebayDeletionRouter } from "./routes/ebayDeletion.js";
 import { alertsRouter } from "./routes/alerts.js";
 import { lotsRouter } from "./routes/lots.js";
 import { settingsRouter } from "./routes/settings.js";
+import { savedLotSearchesRouter } from "./routes/savedLotSearches.js";
 import { startRefreshJob } from "./jobs/refreshListings.js";
 import { startSnapshotJob } from "./jobs/snapshotPrices.js";
 import { startSyncCatalogJob } from "./jobs/syncCatalog.js";
 import { startAutoOcrJob } from "./jobs/autoOcrLots.js";
+import { startSavedSearchRefreshJob } from "./jobs/refreshSavedSearches.js";
 import { prisma } from "./db.js";
 
 const app = express();
@@ -40,6 +42,7 @@ app.use("/api/prices", pricesRouter);
 app.use("/api/alerts", alertsRouter);
 app.use("/api/lots", lotsRouter);
 app.use("/api/settings", settingsRouter);
+app.use("/api/saved-lot-searches", savedLotSearchesRouter);
 
 // eBay Marketplace Account Deletion webhook — NOT under /api so the URL
 // stays stable and clearly distinct from the app's own JSON API.
@@ -64,6 +67,7 @@ async function main() {
   startSyncCatalogJob();
   console.log("📚  Weekly catalog sync job scheduled");
   startAutoOcrJob();
+  startSavedSearchRefreshJob();
 
   app.listen(config.PORT, () => {
     console.log(`🚀  Server running on port ${config.PORT} [${config.NODE_ENV}]`);

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Send, Save, Trash2, ExternalLink } from "lucide-react";
+import { Send, Save, Trash2, ExternalLink, Bookmark } from "lucide-react";
 import { PageShell } from "@/components/layout/PageShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,11 @@ import {
   useSaveSettings,
   useTestWebhook,
 } from "@/hooks/useSettings";
+import {
+  useSavedLotSearches,
+  useDeleteSavedLotSearch,
+} from "@/hooks/useSavedLotSearches";
+import { formatDistanceToNow } from "date-fns";
 
 /**
  * Settings page (B1 minimum: Discord webhook URL).
@@ -148,7 +153,82 @@ export default function Settings() {
             </>
           )}
         </section>
+
+        {/* B4 — Saved lot searches */}
+        <SavedSearchesSection />
       </div>
     </PageShell>
+  );
+}
+
+function SavedSearchesSection() {
+  const { data, isLoading } = useSavedLotSearches();
+  const del = useDeleteSavedLotSearch();
+  const searches = data?.savedSearches ?? [];
+
+  return (
+    <section className="rounded-xl border border-slate-800 bg-[#0a0f1e]/60 p-5">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
+            <Bookmark className="h-4 w-4 text-purple-400" />
+            Saved lot searches
+          </h2>
+          <p className="text-xs text-slate-500 mt-1 max-w-prose">
+            Lot alerts (💎 LOT_HOT) only fire for lots whose title matches at
+            least one of your saved searches. Saves are added from the{" "}
+            <a
+              href="/"
+              className="text-purple-300 hover:text-purple-200 underline"
+            >
+              Lots tab
+            </a>{" "}
+            — type a query and click <strong>Save</strong>.
+          </p>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="h-12 rounded bg-slate-900/50 animate-pulse" />
+      ) : searches.length === 0 ? (
+        <div className="text-xs text-slate-500 italic px-1 py-3">
+          No saved searches — you won't receive any LOT_HOT alerts. Add one
+          from the Lots tab to start.
+        </div>
+      ) : (
+        <ul className="space-y-1.5">
+          {searches.map((s) => (
+            <li
+              key={s.id}
+              className="flex items-center justify-between gap-2 rounded-md border border-slate-800 bg-slate-900/50 px-3 py-2"
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-sm text-slate-200 truncate font-medium">
+                  {s.query}
+                </p>
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  {s.lastEvaluatedAt
+                    ? `last checked ${formatDistanceToNow(new Date(s.lastEvaluatedAt), { addSuffix: true })}`
+                    : "not yet evaluated"}
+                  {s.minLowEstimate != null &&
+                    ` · low ≥ $${Number(s.minLowEstimate).toFixed(0)}`}
+                  {s.maxAskingPrice != null &&
+                    ` · asking ≤ $${Number(s.maxAskingPrice).toFixed(0)}`}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => del.mutate(s.id)}
+                disabled={del.isPending}
+                className="h-7 text-xs text-red-400 hover:text-red-300 hover:bg-red-900/20"
+              >
+                <Trash2 className="h-3 w-3" />
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
