@@ -66,6 +66,15 @@ model User {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
 
+  /// Optional Discord webhook URL. When set, every alert (TARGET_HIT,
+  /// HOT_DEAL) is also POSTed as an embed. Stored plaintext at the user's
+  /// own trust level — webhook URLs are sensitive (anyone with the URL
+  /// can post) but they live on the user's profile next to their email
+  /// and password hash, so symmetric encryption would add complexity
+  /// without changing the threat surface. GET responses redact to
+  /// `…/last10chars` so the value can't leak via XSS to a third party.
+  discordWebhookUrl String?
+
   watchedCards   WatchedCard[]
   alerts         Alert[]
   lotAnnotations LotAnnotation[]

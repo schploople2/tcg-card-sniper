@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, BookMarked, LogOut, Zap, Bell } from "lucide-react";
+import { LayoutDashboard, BookMarked, LogOut, Zap, Bell, Settings as SettingsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUnreadAlertsCount } from "@/hooks/useAlerts";
 import { NotificationDrawer } from "@/components/shared/NotificationDrawer";
@@ -8,6 +8,7 @@ import { NotificationDrawer } from "@/components/shared/NotificationDrawer";
 const NAV_LINKS = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/watchlist", label: "Watchlist", icon: BookMarked },
+  { to: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 /**

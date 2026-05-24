@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import Dashboard from "./pages/Dashboard.tsx";
 import Watchlist from "./pages/Watchlist.tsx";
+import Settings from "./pages/Settings.tsx";
 import Login from "./pages/Login.tsx";
 
 /**
@@ -32,6 +33,14 @@ export default function App() {
         element={
           <RequireAuth>
             <Watchlist />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <RequireAuth>
+            <Settings />
           </RequireAuth>
         }
       />

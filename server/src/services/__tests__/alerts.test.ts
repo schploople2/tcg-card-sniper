@@ -7,10 +7,20 @@ import type { Prisma } from "@prisma/client";
  * hand them to prisma.alert.createMany with skipDuplicates.
  */
 const createMany = vi.fn().mockResolvedValue({ count: 0 });
+// B1 (rys session): evaluateListings now does a findMany pre-check on alerts
+// to know which candidates are genuinely new (for Discord fan-out), and looks
+// up the user's webhook URL + the listing data when fanning out. Mock them
+// all; default to "no existing alerts, no webhook configured" so the
+// fan-out is a no-op for these tests.
+const alertFindMany = vi.fn().mockResolvedValue([]);
+const userFindUnique = vi.fn().mockResolvedValue(null);
+const listingFindMany = vi.fn().mockResolvedValue([]);
 
 vi.mock("../../db.js", () => ({
   prisma: {
-    alert: { createMany },
+    alert: { createMany, findMany: alertFindMany },
+    user: { findUnique: userFindUnique },
+    listing: { findMany: listingFindMany },
   },
 }));
 
@@ -25,6 +35,12 @@ beforeAll(async () => {
 beforeEach(() => {
   createMany.mockClear();
   createMany.mockResolvedValue({ count: 0 });
+  alertFindMany.mockClear();
+  alertFindMany.mockResolvedValue([]);
+  userFindUnique.mockClear();
+  userFindUnique.mockResolvedValue(null);
+  listingFindMany.mockClear();
+  listingFindMany.mockResolvedValue([]);
 });
 
 function makeListing(over: Partial<{ id: string; totalCost: number; dealTier: string }> = {}) {
