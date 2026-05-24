@@ -1,6 +1,6 @@
 # B1 — Discord webhook for alerts
 
-**Bead:** `tcg-card-sniper-dev-8cr` · **Theme:** B · **Status:** in progress (pending live verification)
+**Bead:** `tcg-card-sniper-dev-8cr` · **Theme:** B · **Status:** ✅ shipped & verified
 **Shipped in:** commit `c040419` · **Migration:** `20260524010000_discord_webhook_url`
 
 ## What it does
@@ -141,8 +141,8 @@ along for the ride.
 - [x] Client `pnpm build` clean
 - [x] Migration applied on Railway prod DB on server boot
 - [x] `/settings` page renders at https://poke-sniper.up.railway.app/settings
-- [ ] **Hands-on test:** paste a real Discord webhook URL → Save → click Send test → confirm `✅ Test alert from TCG Card Sniper` embed appears in Discord channel ⟵ blocks close
-- [ ] **End-to-end test:** trigger a HOT_DEAL or TARGET_HIT alert via the listing refresh and confirm it lands in Discord with the right embed shape ⟵ blocks close
+- [x] **Hands-on test (2026-05-24):** user provided a real webhook URL; browser-drove paste → Save → Send test → green "✅ Test alert from TCG Card Sniper" embed confirmed in `#test` channel at 3:56 AM
+- [x] **End-to-end test (2026-05-24):** real HOT_DEAL alert for "M Gardevoir EX RC31/RC32 Generations" delivered at 4:00 AM via `fanOutDiscord` from `services/alerts.ts`. Embed verified: orange tier border, listing title links to eBay, description "🔥 Hot deal — M Gardevoir-EX", fields rendered (Price $55.00 · Market $99.04 · Savings +44% · Condition Ungraded · Variant holofoil), thumbnail = listing image, timestamp present. Math sanity-check: (99.04 − 55.00) / 99.04 = 44.5% rounds to +44% ✓
 
 ## Future improvements (deferred to follow-up beads)
 
