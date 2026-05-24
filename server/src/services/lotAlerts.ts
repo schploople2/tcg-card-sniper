@@ -26,8 +26,14 @@ import {
  * filter in B4). Single-user dev today; multi-user gating belongs with B4.
  */
 
-const FLOOR_MULTIPLE = 2.0;
-const MIN_LOW_USD = 20;
+// Thresholds for LOT_HOT alert firing. Defaults are conservative;
+// overridable via env (LOT_ALERT_FLOOR_MULTIPLE, LOT_ALERT_MIN_LOW_USD,
+// LOT_ALERT_REQUIRE_HOT_TIER) for live verification and tuning without
+// a code change + deploy cycle. Defaults survive when env is unset.
+const FLOOR_MULTIPLE = Number(process.env.LOT_ALERT_FLOOR_MULTIPLE ?? 2.0);
+const MIN_LOW_USD = Number(process.env.LOT_ALERT_MIN_LOW_USD ?? 20);
+const REQUIRE_HOT_TIER =
+  (process.env.LOT_ALERT_REQUIRE_HOT_TIER ?? "true").toLowerCase() !== "false";
 
 export interface LotAlertEvalResult {
   /** Did the lot qualify after the threshold check? */
@@ -45,7 +51,9 @@ export async function evaluateLotAfterOcr(
   const lowEstimate = Number(lot.lowEstimate);
   const listingPrice = Number(lot.listingPrice);
 
-  if (lot.lotTier !== "HOT") return { qualified: false, alertsCreated: 0 };
+  if (REQUIRE_HOT_TIER && lot.lotTier !== "HOT") {
+    return { qualified: false, alertsCreated: 0 };
+  }
   if (lowEstimate < MIN_LOW_USD) return { qualified: false, alertsCreated: 0 };
   if (listingPrice <= 0) return { qualified: false, alertsCreated: 0 };
   if (lowEstimate < FLOOR_MULTIPLE * listingPrice) {
