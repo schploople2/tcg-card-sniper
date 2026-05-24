@@ -56,6 +56,19 @@ Real-world incident that surfaced mid-session: NODE_ENV=production on Railway se
 
 Client service had a deeper structural problem: it was using the SHARED `/railway.json` (server's config). Even setting `rootDirectory` / `railwayConfigFile` / `buildCommand` overrides via the GraphQL `serviceInstanceUpdate` mutation didn't take effect — Railway kept reading root `/railway.json`. Working fix: set buildCommand/startCommand overrides on the service via API, then deploy with `railway up ./client --path-as-root --service client` so only `client/` is the build context. Client now serving HTTP 200 at https://poke-sniper.up.railway.app/. Issues `tcg-card-sniper-dev-nf4` and `tcg-card-sniper-dev-tdj` closed.
 
+### Phase 9 — Roadmap research & ICE backlog `status: complete`
+Researched the competitive landscape (PriceCharting Snipe, PokeBid Scout, Discord bots PokeSnipe/Pallet/PokeTCG Deals, 130point, Collectr, Manabox, Gixen, SnapGradeAI etc.) and synthesized 18 candidate features across 5 themes:
+
+- **Theme A — Binder intelligence (OCR moat)**: A1-A4 — lean on the Vision OCR pipeline no competitor has
+- **Theme B — Delivery channels**: B1-B4 — Discord webhook, mobile push, email digest, saved searches
+- **Theme C — Trustworthy data signals**: C1-C3 — true sold comps incl Best Offer, graded prices (PSA 9/10), photo pre-grading
+- **Theme D — Portfolio + power-user tools**: D1-D4 — collection tracking, watch-this-seller, Best Offer helper, auto-bidding
+- **Theme E — Coverage expansion**: E1-E3 — Mercari/Whatnot/COMC, JP exclusives, error/miscut detection
+
+5 epic beads + 18 feature beads created with ICE scores baked into descriptions. Sorted-by-ICE leader is **B1 Discord webhook (score 150)** — smallest complexity, full asset reuse, directly attacks Discord-bot competitors. Full plan at ~/.claude/plans/we-need-to-continue-snoopy-reddy.md.
+
+User is free to re-rank by editing the ICE numbers in any bead's description. Next session pulls top-N from ICE-sorted queue.
+
 ### Phase 8 — "Pick correct printing" UX `status: complete`
 User reported the AI sometimes misidentifies the *set* a card belongs to even when the name is right (e.g. Mew VMAX 269/264 from Fusion Strike alt-art SR, but AI guessed Sword & Shield base). The auto-resolved candidate is usually wrong → lot valuation is way off. Add UX to pick the right printing from the suggestion's existing `candidates` list.
 
