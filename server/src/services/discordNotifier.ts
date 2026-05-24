@@ -69,6 +69,7 @@ const KIND_LABEL: Record<AlertKind, string> = {
   TARGET_HIT: "🎯 Target price hit",
   HOT_DEAL: "🔥 Hot deal",
   LOT_HOT: "💎 Under-priced lot",
+  MISTITLED: "🕵️ Hidden cards in lot",
 };
 
 /**
@@ -225,6 +226,67 @@ export function buildLotAlertEmbed(input: LotAlertEmbedInput): Record<string, un
         url: input.lotUrl,
         description: `**${KIND_LABEL.LOT_HOT}** — worth $${input.lowEstimate.toFixed(0)}–$${input.highEstimate.toFixed(0)} vs $${input.askingPrice.toFixed(0)} asking`,
         color: 0x9c27b0, // purple — distinct from HOT_DEAL orange
+        fields,
+        thumbnail: input.imageUrl ? { url: input.imageUrl } : undefined,
+        timestamp: new Date().toISOString(),
+      },
+    ],
+  };
+}
+
+// ─── Mistitled lot alerts (A2) ────────────────────────────────────────────────
+
+export interface MistitledAlertEmbedInput {
+  lotTitle: string;
+  lotUrl: string;
+  imageUrl: string | null;
+  askingPrice: number;
+  /** Total USD of cards the vision pass found that aren't named in the title. */
+  hiddenUsd: number;
+  /** Top hidden cards, already sorted desc by totalValue. UI shows up to 6. */
+  hidden: Array<{ name: string; quantity: number; totalValue: number }>;
+}
+
+/**
+ * A2 — magenta/pink embed for MISTITLED alerts. The framing is "did the
+ * seller leave money on the table by under-describing this lot?" rather
+ * than the LOT_HOT framing of "good deal across the board". Color is
+ * distinct from LOT_HOT purple so the two are scannable in Discord.
+ */
+export function buildMistitledEmbed(input: MistitledAlertEmbedInput): Record<string, unknown> {
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = [
+    { name: "Asking", value: `$${input.askingPrice.toFixed(2)}`, inline: true },
+    { name: "Hidden value", value: `$${input.hiddenUsd.toFixed(2)}`, inline: true },
+    {
+      name: "Title gap multiple",
+      value: input.askingPrice > 0
+        ? `${(input.hiddenUsd / input.askingPrice).toFixed(1)}×`
+        : "—",
+      inline: true,
+    },
+  ];
+  if (input.hidden.length > 0) {
+    const list = input.hidden
+      .slice(0, 6)
+      .map((h) => {
+        const qtyPart = h.quantity > 1 ? `${h.quantity}× ` : "";
+        return `${qtyPart}${h.name} ($${h.totalValue.toFixed(0)})`;
+      })
+      .join("\n");
+    fields.push({
+      name: "Cards not mentioned in title",
+      value: list.slice(0, 1024),
+    });
+  }
+
+  return {
+    username: "TCG Card Sniper",
+    embeds: [
+      {
+        title: input.lotTitle.slice(0, 256),
+        url: input.lotUrl,
+        description: `**${KIND_LABEL.MISTITLED}** — $${input.hiddenUsd.toFixed(0)} of cards not named in the title`,
+        color: 0xe91e63, // pink/magenta — distinct from LOT_HOT purple + HOT_DEAL orange
         fields,
         thumbnail: input.imageUrl ? { url: input.imageUrl } : undefined,
         timestamp: new Date().toISOString(),

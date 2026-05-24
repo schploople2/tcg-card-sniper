@@ -57,6 +57,11 @@ enum AlertKind {
   /// higher than the asking price (currently: lowEstimate ≥ 2× listingPrice
   /// AND lotTier == HOT). References Alert.lotEbayItemId instead of cardId.
   LOT_HOT
+  /// A2 — lot whose photos contain ≥$30 of cards whose names don't appear
+  /// in the listing title (the "hidden gems in a generic-title bulk lot"
+  /// signal). Fires independently of LOT_HOT — a lot can be both. Dedup
+  /// is per (userId, lotEbayItemId, kind) like the other lot alerts.
+  MISTITLED
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

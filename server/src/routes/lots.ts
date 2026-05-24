@@ -12,7 +12,7 @@ import {
   mergeTitleAndVisionParsed,
   reValueWithAnnotation,
 } from "../services/lotValuation.js";
-import { evaluateLotAfterOcr } from "../services/lotAlerts.js";
+import { evaluateLotAfterOcr, evaluateLotForMistitling } from "../services/lotAlerts.js";
 import { searchEbayLots } from "../services/ebay.js";
 import { getLotImages } from "../services/lotImages.js";
 import {
@@ -470,6 +470,15 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
     void evaluateLotAfterOcr(req.params.ebayItemId).catch((err) =>
       console.error(
         "[lots] evaluateLotAfterOcr failed:",
+        err instanceof Error ? err.message : err
+      )
+    );
+    // A2 — independently fire MISTITLED alerts for hidden-card-in-bulk-lot
+    // signal. A lot can fire both LOT_HOT and MISTITLED; they're distinct
+    // signals with distinct embeds.
+    void evaluateLotForMistitling(req.params.ebayItemId).catch((err) =>
+      console.error(
+        "[lots] evaluateLotForMistitling failed:",
         err instanceof Error ? err.message : err
       )
     );

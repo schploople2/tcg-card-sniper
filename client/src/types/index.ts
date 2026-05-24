@@ -105,7 +105,7 @@ export interface WatchedCard {
 
 // ─── Alerts (P3 + P4) ────────────────────────────────────────────────────────
 
-export type AlertKind = "TARGET_HIT" | "HOT_DEAL" | "LOT_HOT";
+export type AlertKind = "TARGET_HIT" | "HOT_DEAL" | "LOT_HOT" | "MISTITLED";
 
 export interface Alert {
   id: string;

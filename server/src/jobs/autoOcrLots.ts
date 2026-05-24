@@ -1,7 +1,7 @@
 import cron from "node-cron";
 import { prisma } from "../db.js";
 import { runLotVision, visionEnabled } from "../services/lotVisionAi.js";
-import { evaluateLotAfterOcr } from "../services/lotAlerts.js";
+import { evaluateLotAfterOcr, evaluateLotForMistitling } from "../services/lotAlerts.js";
 
 /**
  * A4 — Auto-OCR sweep for high-value, never-OCR'd lots.
@@ -90,6 +90,7 @@ export async function runAutoOcrSweep(): Promise<SweepResult> {
       // re-opens the lot and sees the fresh suggestions, which is when
       // they'd want the alert anyway.
       await evaluateLotAfterOcr(c.ebayItemId);
+      await evaluateLotForMistitling(c.ebayItemId);
     } catch (err) {
       errors += 1;
       console.error(

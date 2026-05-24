@@ -3,10 +3,13 @@ import { AlertKind } from "@prisma/client";
 import { prisma } from "../db.js";
 import {
   buildLotAlertEmbed,
+  buildMistitledEmbed,
   postToDiscord,
   type LotAlertEmbedInput,
+  type MistitledAlertEmbedInput,
 } from "./discordNotifier.js";
 import { matchUsersForLot } from "./savedLotSearches.js";
+import { computeMistitledScore } from "./mistitledScore.js";
 
 /**
  * A1 — Lot-tied alerts.
@@ -171,6 +174,125 @@ async function fanOutDiscord(lot: Lot, userIds: string[]): Promise<void> {
   } catch (err) {
     console.error(
       "[lotAlerts:discord] fanOutDiscord crashed:",
+      err instanceof Error ? err.message : err
+    );
+  }
+}
+
+// ─── A2: Mis-titled lot alerts ─────────────────────────────────────────────────
+
+const MISTITLED_MIN_HIDDEN_USD = Number(
+  process.env.LOT_ALERT_MISTITLED_MIN_USD ?? 30
+);
+
+export interface MistitledEvalResult {
+  qualified: boolean;
+  hiddenUsd: number;
+  alertsCreated: number;
+}
+
+/**
+ * A2 — Fire MISTITLED alerts for lots whose photo content has significant
+ * value the title fails to mention. Run after every OCR write-back along
+ * with evaluateLotAfterOcr; same scoping (matchUsersForLot from B4), same
+ * fan-out shape (createMany + best-effort Discord), distinct embed.
+ *
+ * Doesn't block on Discord fan-out — caller can `void`-prefix.
+ */
+export async function evaluateLotForMistitling(
+  ebayItemId: string
+): Promise<MistitledEvalResult> {
+  const lot = await prisma.lot.findUnique({ where: { ebayItemId } });
+  if (!lot) return { qualified: false, hiddenUsd: 0, alertsCreated: 0 };
+
+  const score = computeMistitledScore({
+    title: lot.title,
+    parsedCards: lot.parsedCards,
+  });
+  if (score.hiddenUsd < MISTITLED_MIN_HIDDEN_USD) {
+    return { qualified: false, hiddenUsd: score.hiddenUsd, alertsCreated: 0 };
+  }
+
+  const userIds = await matchUsersForLot({
+    title: lot.title,
+    lowEstimate: lot.lowEstimate,
+    listingPrice: lot.listingPrice,
+  });
+  if (userIds.length === 0) {
+    return { qualified: true, hiddenUsd: score.hiddenUsd, alertsCreated: 0 };
+  }
+
+  const candidates = userIds.map((id) => ({
+    userId: id,
+    lotEbayItemId: ebayItemId,
+    kind: AlertKind.MISTITLED,
+  }));
+
+  const existing = await prisma.alert.findMany({
+    where: {
+      lotEbayItemId: ebayItemId,
+      kind: AlertKind.MISTITLED,
+      userId: { in: userIds },
+    },
+    select: { userId: true },
+  });
+  const existingByUser = new Set(existing.map((e) => e.userId));
+  const novel = candidates.filter((c) => !existingByUser.has(c.userId));
+
+  const result = await prisma.alert.createMany({
+    data: candidates,
+    skipDuplicates: true,
+  });
+
+  if (novel.length > 0) {
+    void fanOutMistitledDiscord(lot, score, novel.map((n) => n.userId));
+  }
+
+  return {
+    qualified: true,
+    hiddenUsd: score.hiddenUsd,
+    alertsCreated: result.count,
+  };
+}
+
+async function fanOutMistitledDiscord(
+  lot: Lot,
+  score: ReturnType<typeof computeMistitledScore>,
+  userIds: string[]
+): Promise<void> {
+  try {
+    const users = await prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, discordWebhookUrl: true },
+    });
+    const embedInput: MistitledAlertEmbedInput = {
+      lotTitle: lot.title,
+      lotUrl: lot.ebayUrl,
+      imageUrl: lot.imageUrl ?? null,
+      askingPrice: Number(lot.listingPrice),
+      hiddenUsd: score.hiddenUsd,
+      hidden: score.hidden.map((h) => ({
+        name: h.name,
+        quantity: h.quantity,
+        totalValue: h.totalValue,
+      })),
+    };
+    const payload = buildMistitledEmbed(embedInput);
+
+    for (const u of users) {
+      if (!u.discordWebhookUrl) continue;
+      const result = await postToDiscord(u.discordWebhookUrl, payload);
+      if (!result.ok) {
+        console.error(
+          `[mistitled:discord] user=${u.id} lot=${lot.ebayItemId} failed: ${
+            result.error ?? `status ${result.status}`
+          }`
+        );
+      }
+    }
+  } catch (err) {
+    console.error(
+      "[mistitled:discord] fanOut crashed:",
       err instanceof Error ? err.message : err
     );
   }

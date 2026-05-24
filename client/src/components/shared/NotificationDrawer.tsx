@@ -145,7 +145,8 @@ function AlertRow({ alert, onMarkRead }: AlertRowProps) {
   // and we render the lot title from `listing` (which the alerts route
   // populates from the Lot row for LOT_HOT specifically). Falls back to a
   // generic label when neither is available.
-  const isLotAlert = alert.kind === "LOT_HOT";
+  // Lot-tied: LOT_HOT (A1, under-priced) + MISTITLED (A2, hidden cards).
+  const isLotAlert = alert.kind === "LOT_HOT" || alert.kind === "MISTITLED";
 
   const onOpenEbay = () => {
     if (listing) {
@@ -159,12 +160,16 @@ function AlertRow({ alert, onMarkRead }: AlertRowProps) {
       ? "🎯 Target hit"
       : alert.kind === "HOT_DEAL"
       ? "🔥 Hot deal"
+      : alert.kind === "MISTITLED"
+      ? "🕵️ Hidden cards"
       : "💎 Under-priced lot";
   const kindClass =
     alert.kind === "TARGET_HIT"
       ? "bg-emerald-900/30 text-emerald-300 border-emerald-700/40"
       : alert.kind === "HOT_DEAL"
       ? "bg-red-900/30 text-red-300 border-red-700/40"
+      : alert.kind === "MISTITLED"
+      ? "bg-pink-900/30 text-pink-300 border-pink-700/40"
       : "bg-purple-900/30 text-purple-300 border-purple-700/40";
 
   return (
@@ -262,7 +267,9 @@ function AlertRow({ alert, onMarkRead }: AlertRowProps) {
           className="block bg-slate-800/50 hover:bg-slate-800 rounded-lg p-2 transition group"
         >
           <p className="text-[11px] text-slate-300">
-            Vision OCR found multiple cards above asking price.
+            {alert.kind === "MISTITLED"
+              ? "Vision OCR found valuable cards the title doesn't mention."
+              : "Vision OCR found multiple cards above asking price."}
           </p>
           <span className="mt-1 inline-flex items-center gap-1 text-xs text-purple-300 group-hover:text-purple-200">
             Open lot on eBay
