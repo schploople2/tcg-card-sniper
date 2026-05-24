@@ -176,4 +176,22 @@ describe("reValueWithAnnotation — supersession", () => {
       addedCardSummaries: [],
     });
   });
+
+  it("accepts addedCards with note: null (the client's resting shape) — ssw regression", async () => {
+    // Regression for ssw: the client sends `note: null` from every code
+    // path (handleAdd, handleAcceptSuggestion, handlePickPrinting). The
+    // server schema used to reject null and a Save would 400.
+    lotFindUnique.mockResolvedValue({ parsedCards: [] });
+    cardFindMany.mockResolvedValue([mewVmaxAltArtCardRow]);
+
+    const result = await reValueWithAnnotation("ebay-1", [
+      { cardId: "swsh8-269", quantity: 1, note: null },
+    ]);
+
+    expect(result.addedCardSummaries[0]).toMatchObject({
+      cardId: "swsh8-269",
+      quantity: 1,
+      note: null,
+    });
+  });
 });

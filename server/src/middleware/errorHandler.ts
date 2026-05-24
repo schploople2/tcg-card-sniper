@@ -20,8 +20,15 @@ export function errorHandler(
 ): void {
   // Zod validation errors → 400
   if (err instanceof ZodError) {
+    // Surface the first issue inline so clients that only read `error`
+    // (most toast handlers) still get something actionable instead of
+    // a generic "Validation error" with no field context.
+    const first = err.issues[0];
+    const summary = first
+      ? `Validation error: ${first.path.join(".") || "<root>"} — ${first.message}`
+      : "Validation error";
     const body: ApiError = {
-      error: "Validation error",
+      error: summary,
       details: err.flatten().fieldErrors,
     };
     res.status(400).json(body);

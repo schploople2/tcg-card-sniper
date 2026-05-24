@@ -234,7 +234,10 @@ async function searchAndParseLots(
 const addedCardSchema = z.object({
   cardId: z.string().min(1).max(50),
   quantity: z.number().int().min(1).max(999).default(1),
-  note: z.string().max(200).optional(),
+  // Accept null (the client's resting state when no note has been typed) as
+  // well as a string or omission — the LotAnnotation table stores notes as
+  // nullable JSON so all three shapes are equivalent on disk.
+  note: z.string().max(200).nullable().optional(),
 });
 const annotationUpsertSchema = z.object({
   addedCards: z.array(addedCardSchema).max(200),

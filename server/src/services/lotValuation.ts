@@ -396,7 +396,7 @@ export interface AnnotationRevaluation {
  */
 export async function reValueWithAnnotation(
   ebayItemId: string,
-  addedCards: Array<{ cardId: string; quantity: number; note?: string }>
+  addedCards: Array<{ cardId: string; quantity: number; note?: string | null }>
 ): Promise<AnnotationRevaluation> {
   const lot = await prisma.lot.findUnique({ where: { ebayItemId } });
 
