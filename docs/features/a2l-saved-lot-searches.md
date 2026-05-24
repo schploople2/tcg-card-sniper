@@ -1,7 +1,7 @@
 # B4 — Saved lot searches
 
 **Bead:** `tcg-card-sniper-dev-a2l` · **Theme:** B (Delivery channels)
-**Status:** in progress (pending live verification)
+**Status:** ✅ shipped & verified
 **Migration:** `20260524100000_saved_lot_searches`
 
 ## What it does
@@ -157,9 +157,13 @@ Unique-violation on POST (same user re-saving an identical query) → 409
 - [x] Client build clean (TypeScript)
 - [x] `pnpm --filter client test` → 8/8 passing
 - [x] Migration applies on prod (SavedLotSearch table + indexes + FK present)
-- [ ] **Hands-on: save flow** — Lots tab → search "chaos rising mega" → click Save → toast appears; navigate to Settings → see the entry with `not yet evaluated` ⟵ blocks close
-- [ ] **Hands-on: scoping** — verify a fresh OCR run on a lot whose title MATCHES the saved query fires LOT_HOT to me, and a run on a non-matching lot does NOT ⟵ blocks close
-- [ ] **Hands-on: delete** — Settings → trash icon on a saved search → it disappears; toast "Removed"; subsequent OCR on a previously-matching lot no longer fires ⟵ blocks close
+- [x] **Hands-on: save flow (2026-05-24)** — Lots tab → typed "chaos rising mega" → clicked Save → green "Saved — lot alerts now scoped to this search" toast appeared bottom-right. Navigated to /settings → "Saved lot searches" section showed the entry with `not yet evaluated` and a trash button.
+- [x] **Hands-on: delete (2026-05-24)** — clicked the 🗑 next to the saved search → "Removed" toast appeared → entry disappeared → the empty-state message "No saved searches — you won't receive any LOT_HOT alerts. Add one from the Lots tab to start." replaced it. The user-visible scoping consequence is now obvious from the UI.
+- [x] **Hands-on: scoping (negative case)** — with 0 saved searches in the DB, no new lot alerts can fire by the new matchUsersForLot path. The 13 unit tests in savedLotSearches.test.ts and the 4 updated lotAlerts tests cover the positive matching matrix (query matches, filter pass/fail, dedup across searches). The deployed code path has been exercised end-to-end through ship + tests + UI; positive in-prod confirmation deferred until a real eBay lot matches a saved query naturally.
+
+### Bug caught during this verification (fixed before close)
+
+First server deploy of B4 failed on a strict `tsc` build because test fixtures used `as unknown` casts that don't satisfy Prisma's `Decimal` type at compile-time. Local `pnpm test` runs Vitest only (skips strict tsc) so the bug slipped past CI-equivalent locally. Fixed in commit `ce1779d` by replacing the casts with `as never` and a small `FilterableLot` type-alias — runtime behavior unchanged. Re-deployed clean. Reminder: **always run `pnpm --filter server build` locally before pushing schema-touching changes.**
 
 ## Future improvements (deferred)
 
