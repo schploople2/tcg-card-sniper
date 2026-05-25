@@ -84,3 +84,4 @@ pnpm --filter server build && pnpm --filter client build
 - **Prisma + manual trigram indexes:** `Card.name_trgm_idx` and `Card.setName_trgm_idx` are created via raw SQL (Prisma can't model them). Every generated migration tries to `DROP` them — **strip those `DROP INDEX` statements before applying.** We've hit this twice.
 - **Sold-comp scrapes go through ScrapingBee** (set `SCRAPINGBEE_API_KEY`). Direct eBay scraping from datacenter IPs 403s. See [docs/features/l6x-sold-comps.md](docs/features/l6x-sold-comps.md).
 - **Tests live next to code:** `server/src/services/__tests__/*.test.ts` for server, `client/src/components/shared/__tests__/*.test.tsx` for client, `client/e2e/*.spec.ts` for Playwright.
+- **Refresh `CHANGELOG.md` before pushing.** `pnpm changelog` reads new `feat:`/`fix:` commits since the marker SHA in `CHANGELOG.md` and prepends them. Commit `CHANGELOG.md` alongside the change itself. See [`scripts/changelog.mjs`](scripts/changelog.mjs).

@@ -12,6 +12,13 @@ The Railway project has three services:
 | `client` | manual `railway up`, served via Caddy | **manual** — see below |
 | `Postgres` | Railway managed | n/a |
 
+## Pre-push checklist
+
+1. Tests pass: `pnpm --filter server test && pnpm --filter client test`
+2. Builds clean: `pnpm --filter server build && pnpm --filter client build`
+3. **Refresh changelog:** `pnpm changelog` reads new `feat:` / `fix:` commits since the marker SHA in `CHANGELOG.md` and prepends a dated section. Commit `CHANGELOG.md` with the change.
+4. Push to main → server auto-deploys; client requires manual `railway up` (see below).
+
 ## Deploying the server
 
 Push to `main`. Railway picks up the commit, runs the Nixpacks build (`pnpm install --force` → `prisma generate` → `pnpm --filter server build`), then `prisma migrate deploy` + `node dist/index.js` at start. Healthcheck path is `/api/health`.

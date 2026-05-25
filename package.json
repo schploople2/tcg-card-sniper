@@ -12,7 +12,9 @@
     "build": "pnpm --filter server build && pnpm --filter client build",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "changelog": "node scripts/changelog.mjs",
+    "changelog:test": "node --test scripts/__tests__/changelog-format.test.mjs"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

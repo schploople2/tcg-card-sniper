@@ -22,6 +22,8 @@ A Pokémon card deal-finder. Scores live eBay listings against TCGPlayer / Cardm
 | 🔖 Saved Lots — pin eBay lot listings to a Saved tab | [u8y](docs/features/u8y-saved-lots.md) |
 | 🔍 In-app lightbox for lot listing photos | [n5f](docs/features/n5f-image-lightbox.md) |
 
+Running log of every user-visible change: **[CHANGELOG.md](CHANGELOG.md)** (auto-generated from conventional commits via `pnpm changelog`).
+
 ## Quick start
 
 Requires **Node ≥20**, pnpm, and Postgres.
