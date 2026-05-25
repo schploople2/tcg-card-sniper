@@ -8,6 +8,7 @@ import {
   useLotAnnotation,
   useLotImages,
   useLotSuggestions,
+  useLotValuation,
   useSaveAnnotation,
 } from "@/hooks/useLots";
 import { useCatalogSearch } from "@/hooks/useCatalog";
@@ -23,6 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/utils";
 import type { AddedLotCard, BulkCounts, BulkValuation, CatalogCard, Lot, LotSuggestion } from "@/types";
 import { BulkValuationPanel } from "./BulkValuationPanel";
+import { LotValuationPanel } from "./LotValuationPanel";
 
 interface LotAnalyzerModalProps {
   lot: Lot | null;
@@ -124,6 +126,10 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
   const [notes, setNotes] = useState("");
   const [catalogQuery, setCatalogQuery] = useState("");
   const catalog = useCatalogSearch(catalogQuery, !!lot);
+  // Live "lot price vs market" valuation — re-runs server-side any time
+  // addedCards changes. Server is pure-read (no DB writes), so it's safe
+  // to debounce-free.
+  const { data: valuation } = useLotValuation(ebayItemId, addedCards);
 
   // Seed local state when the server data lands. We use the annotation's
   // updatedAt as the dependency so a re-open after save reflects the new value.
@@ -400,6 +406,12 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
                 Your additions, Notes, Catalog search, and Save stay
                 reachable on viewports too short to fit them all at once. */}
             <div className="flex-1 lg:w-1/2 flex flex-col min-h-0 overflow-y-auto">
+              {/* Lot price vs market — live headline, hides until valuation lands. */}
+              <LotValuationPanel
+                lotTotalCost={lot.totalCost}
+                valuation={valuation}
+              />
+
               {/* Auto-parsed (read-only summary) */}
               <div className="border-b border-slate-800 p-4">
                 <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">

@@ -187,6 +187,36 @@ export function useCachedLotSuggestions(ebayItemId: string | null) {
   });
 }
 
+/**
+ * Live "lot price vs market value" valuation. Calls the non-mutating
+ * POST /api/lots/:id/valuation endpoint with the user's current
+ * addedCards, returns the same `LotRevaluation` shape that
+ * useSaveAnnotation's response carries. Used by LotValuationPanel
+ * to render the headline comparison.
+ *
+ * Keyed on (ebayItemId, JSON.stringify(addedCards)) so any edit to
+ * additions invalidates and re-fetches.
+ */
+export function useLotValuation(
+  ebayItemId: string | null,
+  addedCards: AddedLotCard[]
+) {
+  return useQuery({
+    queryKey: ["lots", "valuation", ebayItemId, addedCards],
+    queryFn: async (): Promise<LotRevaluation> => {
+      const { data } = await api.post<{ revaluation: LotRevaluation }>(
+        `/api/lots/${ebayItemId}/valuation`,
+        { addedCards }
+      );
+      return data.revaluation;
+    },
+    enabled: !!ebayItemId,
+    // Cards' market prices change at most daily; valuation answers don't
+    // need fresher than that for a session.
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
 export function useLotImages(ebayItemId: string | null) {
   return useQuery({
     queryKey: ["lots", "images", ebayItemId],

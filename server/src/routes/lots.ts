@@ -286,6 +286,30 @@ lotsRouter.get("/:ebayItemId/annotation", async (req, res, next) => {
 });
 
 /**
+ * POST /api/lots/:ebayItemId/valuation
+ *
+ * Non-mutating preview: run `reValueWithAnnotation` against the supplied
+ * addedCards and return the live valuation without writing anything to
+ * LotAnnotation. Powers the live "Lot price vs market" comparison panel
+ * in the analyzer modal so the user sees their total update as they add
+ * cards.
+ */
+lotsRouter.post("/:ebayItemId/valuation", async (req, res, next) => {
+  try {
+    const { addedCards } = z
+      .object({ addedCards: z.array(addedCardSchema).max(200) })
+      .parse(req.body);
+    const revaluation = await reValueWithAnnotation(
+      req.params.ebayItemId,
+      addedCards
+    );
+    res.json({ revaluation });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * PUT /api/lots/:ebayItemId/annotation
  *
  * Replace the user's analysis. Body: { addedCards: [...], notes?: string }.
