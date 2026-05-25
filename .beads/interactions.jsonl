@@ -27,3 +27,4 @@
 {"id":"int-2f58f1ee","kind":"field_change","created_at":"2026-05-24T19:46:48.65448Z","actor":"John","issue_id":"tcg-card-sniper-dev-nl6","extra":{"field":"status","new_value":"closed","old_value":"in_progress"}}
 {"id":"int-33121e9b","kind":"field_change","created_at":"2026-05-24T20:46:06.075903Z","actor":"John","issue_id":"tcg-card-sniper-dev-rcs","extra":{"field":"status","new_value":"closed","old_value":"in_progress"}}
 {"id":"int-1ffde082","kind":"field_change","created_at":"2026-05-25T04:41:34.367111Z","actor":"John","issue_id":"tcg-card-sniper-dev-l6x","extra":{"field":"status","new_value":"closed","old_value":"in_progress"}}
+{"id":"int-67a3fd52","kind":"field_change","created_at":"2026-05-25T05:59:44.106881Z","actor":"John","issue_id":"tcg-card-sniper-dev-2or","extra":{"field":"status","new_value":"closed","old_value":"in_progress"}}

@@ -38,8 +38,27 @@ export interface VisionSuggestion {
   sourceImagePosition: number;
 }
 
+/**
+ * A3 — Bulk-rarity counts for cards visible in the photos but NOT
+ * specifically identified by name. These come from the model alongside
+ * the per-card `suggestions[]` and let us value binder pages where most
+ * cards are commons/uncommons that aren't worth individually pricing.
+ */
+export interface BulkCounts {
+  commons: number;
+  uncommons: number;
+  rares: number;
+  holos: number;
+}
+
 export interface VisionRunResult {
   suggestions: VisionSuggestion[];
+  /**
+   * Aggregated count of *unidentified* cards across every processed
+   * image, broken out by rarity bucket. Zeroed out when no cache-hit /
+   * processed image reported any bulk.
+   */
+  bulk: BulkCounts;
   /**
    * "cached"  — every image already had ocrText, no API call made.
    * "partial" — some images cached, some processed live.
@@ -59,6 +78,44 @@ export interface VisionRunResult {
    *                   "AI temporarily unavailable" instead of "no cards found".
    */
   providerStatus: "ok" | "partial-failed" | "all-failed";
+}
+
+const EMPTY_BULK: BulkCounts = {
+  commons: 0,
+  uncommons: 0,
+  rares: 0,
+  holos: 0,
+};
+
+/**
+ * Defensively coerce a raw `bulk` object from cached or fresh model output
+ * into a clean `BulkCounts`. Clamps each count to 0..99 (sanity bound —
+ * no listing photo realistically shows 100+ of one rarity), defaults
+ * missing/garbage fields to 0. Exported for tests.
+ */
+export function coerceBulk(raw: unknown): BulkCounts {
+  if (!raw || typeof raw !== "object") return { ...EMPTY_BULK };
+  const r = raw as Record<string, unknown>;
+  const clamp = (v: unknown): number =>
+    typeof v === "number" && Number.isFinite(v)
+      ? Math.max(0, Math.min(99, Math.floor(v)))
+      : 0;
+  return {
+    commons: clamp(r.commons),
+    uncommons: clamp(r.uncommons),
+    rares: clamp(r.rares),
+    holos: clamp(r.holos),
+  };
+}
+
+/** Sum two BulkCounts elementwise. */
+export function addBulk(a: BulkCounts, b: BulkCounts): BulkCounts {
+  return {
+    commons: a.commons + b.commons,
+    uncommons: a.uncommons + b.uncommons,
+    rares: a.rares + b.rares,
+    holos: a.holos + b.holos,
+  };
 }
 
 // ─── Anthropic client (lazy) ─────────────────────────────────────────────────
@@ -91,16 +148,29 @@ each card return:
 - quantity: how many copies of THIS exact card you can see in the image, default 1
 - confidence: 0.0-1.0 — how confident you are this card is actually in the image and your reading is correct
 
+ALSO count cards you can SEE but cannot specifically identify by name —
+these are bulk cards (typical of binder pages or stacked lots). Bucket
+each by rarity using the card's visible rarity symbol or art treatment:
+- commons: small black circle (●) rarity symbol, no holo finish
+- uncommons: small black diamond (◆) rarity symbol, no holo finish
+- rares: small black star (★) symbol, no holo finish
+- holos: any card with a holographic/foil finish on the artwork or whole
+  card — includes Holo Rare, Reverse Holo, V, ex, EX, GX, VMAX, etc.
+
+Do NOT double-count: any card you listed in cards[] above must be
+excluded from the bulk counts. Bulk is for the "everything else" pile.
+Return zeros if every visible card is in cards[].
+
 Rules:
 - Only count cards you can actually see. Do not invent cards.
 - A "card" is a standalone Pokémon TCG card. Ignore booster packs, tins, sleeves, and merchandise.
-- If lighting/angle makes a card unreadable, omit it rather than guessing.
-- If 5+ cards are present and indistinct (e.g. a stack), surface the ones whose names you can read and one summary entry with cardName="unidentified" if useful.
+- If lighting/angle makes a card unreadable, omit it from cards[] but you
+  may still bucket it in bulk if its rarity is visible.
 
 Return ONLY valid JSON in this exact shape — no prose, no markdown fences:
-{"cards":[{"cardName":"...","setHint":"...","cardNumber":"...","quantity":1,"confidence":0.9}]}
+{"cards":[{"cardName":"...","setHint":"...","cardNumber":"...","quantity":1,"confidence":0.9}],"bulk":{"commons":0,"uncommons":0,"rares":0,"holos":0}}
 
-If you see no Pokémon cards, return {"cards":[]}.`;
+If you see no Pokémon cards at all, return {"cards":[],"bulk":{"commons":0,"uncommons":0,"rares":0,"holos":0}}.`;
 
 // ─── Image processing ────────────────────────────────────────────────────────
 
@@ -112,8 +182,13 @@ export interface RawCard {
   confidence?: unknown;
 }
 
+export interface ParsedModelOutput {
+  cards: RawCard[];
+  bulk: BulkCounts;
+}
+
 /** Parse a model response, defensive against malformed JSON / extra prose. Exported for tests. */
-export function parseModelOutput(text: string): RawCard[] {
+export function parseModelOutput(text: string): ParsedModelOutput {
   // First try clean JSON. If that fails, try to strip surrounding prose
   // and code fences and try again. Last resort: empty.
   const attempts = [
@@ -126,13 +201,16 @@ export function parseModelOutput(text: string): RawCard[] {
     try {
       const parsed = JSON.parse(attempt);
       if (parsed && Array.isArray(parsed.cards)) {
-        return parsed.cards as RawCard[];
+        return {
+          cards: parsed.cards as RawCard[],
+          bulk: coerceBulk(parsed.bulk),
+        };
       }
     } catch {
       // continue
     }
   }
-  return [];
+  return { cards: [], bulk: { ...EMPTY_BULK } };
 }
 
 /**
@@ -150,17 +228,22 @@ export function parseModelOutput(text: string): RawCard[] {
 export function parseCachedSuggestions(
   text: string,
   position: number
-): VisionSuggestion[] {
+): { suggestions: VisionSuggestion[]; bulk: BulkCounts } {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return [];
+    return { suggestions: [], bulk: { ...EMPTY_BULK } };
   }
   const cards =
     parsed && typeof parsed === "object" && Array.isArray((parsed as { cards?: unknown }).cards)
       ? ((parsed as { cards: unknown[] }).cards)
       : [];
+  const bulk = coerceBulk(
+    parsed && typeof parsed === "object"
+      ? (parsed as { bulk?: unknown }).bulk
+      : undefined
+  );
   const out: VisionSuggestion[] = [];
   for (const c of cards) {
     if (!c || typeof c !== "object") continue;
@@ -197,7 +280,7 @@ export function parseCachedSuggestions(
       sourceImagePosition: position,
     });
   }
-  return out;
+  return { suggestions: out, bulk };
 }
 
 /** Normalise one raw card object from the model into a VisionSuggestion. Exported for tests. */
@@ -233,7 +316,7 @@ export function coerceSuggestion(
 async function visionOneImage(
   imageUrl: string,
   position: number
-): Promise<{ suggestions: VisionSuggestion[]; cacheJson: string }> {
+): Promise<{ suggestions: VisionSuggestion[]; bulk: BulkCounts; cacheJson: string }> {
   const resp = await client().messages.create({
     model: "claude-sonnet-4-5",
     max_tokens: 1024,
@@ -261,14 +344,15 @@ async function visionOneImage(
     .map((b) => b.text)
     .join("\n");
 
-  const raw = parseModelOutput(text);
-  const suggestions = raw
+  const parsed = parseModelOutput(text);
+  const suggestions = parsed.cards
     .map((r) => coerceSuggestion(r, position))
     .filter((s): s is VisionSuggestion => s !== null);
 
   return {
     suggestions,
-    cacheJson: JSON.stringify({ cards: suggestions }),
+    bulk: parsed.bulk,
+    cacheJson: JSON.stringify({ cards: suggestions, bulk: parsed.bulk }),
   };
 }
 
@@ -291,6 +375,7 @@ export async function runLotVision(
   if (!visionEnabled()) {
     return {
       suggestions: [],
+      bulk: { ...EMPTY_BULK },
       cacheStatus: "cached",
       imagesProcessed: 0,
       imagesFailed: 0,
@@ -306,6 +391,7 @@ export async function runLotVision(
   if (images.length === 0) {
     return {
       suggestions: [],
+      bulk: { ...EMPTY_BULK },
       cacheStatus: "cached",
       imagesProcessed: 0,
       imagesFailed: 0,
@@ -316,6 +402,7 @@ export async function runLotVision(
   const capped = images.slice(0, config.OCR_MAX_IMAGES_PER_LOT);
 
   const suggestions: VisionSuggestion[] = [];
+  let bulk: BulkCounts = { ...EMPTY_BULK };
   let processedCount = 0;
   let cachedCount = 0;
   let failedCount = 0;
@@ -329,15 +416,17 @@ export async function runLotVision(
       // already-renamed objects and silently drop every cached entry.
       // (rys: this was a real bug that wiped out every cached lot's
       // suggestions until the next manual re-OCR.)
-      for (const s of parseCachedSuggestions(img.ocrText, img.position)) {
+      const cached = parseCachedSuggestions(img.ocrText, img.position);
+      for (const s of cached.suggestions) {
         suggestions.push(s);
       }
+      bulk = addBulk(bulk, cached.bulk);
       cachedCount += 1;
       continue;
     }
 
     try {
-      const { suggestions: imgSuggestions, cacheJson } = await visionOneImage(
+      const { suggestions: imgSuggestions, bulk: imgBulk, cacheJson } = await visionOneImage(
         img.imageUrl,
         img.position
       );
@@ -346,6 +435,7 @@ export async function runLotVision(
         data: { ocrText: cacheJson },
       });
       suggestions.push(...imgSuggestions);
+      bulk = addBulk(bulk, imgBulk);
       processedCount += 1;
     } catch (err) {
       failedCount += 1;
@@ -390,6 +480,7 @@ export async function runLotVision(
 
   return {
     suggestions,
+    bulk,
     cacheStatus,
     imagesProcessed: processedCount,
     imagesFailed: failedCount,

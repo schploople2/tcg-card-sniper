@@ -25,6 +25,7 @@ import {
   isUserCapped,
   listTodayUsage,
 } from "../services/ocrUsage.js";
+import { valueBulk } from "../services/bulkValuation.js";
 import { LISTING_CACHE_TTL_MS, config } from "../config.js";
 
 export const lotsRouter = Router();
@@ -500,6 +501,11 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
     // Surface post-call usage so the modal can render "N of M images today".
     const usage = await getTodayUsage(userId);
 
+    // A3 — value the unidentified bulk cards the model bucketed by rarity.
+    // valueBulk returns zeros when totalCards is 0, so the client can hide
+    // the bulk row entirely in the common "no bulk visible" case.
+    const bulkValuation = valueBulk(result.bulk);
+
     res.json({
       ebayItemId: req.params.ebayItemId,
       suggestions,
@@ -507,6 +513,8 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
       imagesProcessed: result.imagesProcessed,
       imagesFailed: result.imagesFailed,
       providerStatus: result.providerStatus,
+      bulkCounts: result.bulk,
+      bulkValuation,
       lotUpdate,
       usage,
     });

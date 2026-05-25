@@ -102,45 +102,65 @@ describe("dedupeSuggestions", () => {
 // ─── parseModelOutput ────────────────────────────────────────────────────────
 
 describe("parseModelOutput", () => {
+  const EMPTY = { cards: [], bulk: { commons: 0, uncommons: 0, rares: 0, holos: 0 } };
+
   it("parses clean JSON", () => {
     const out = parseModelOutput('{"cards":[{"cardName":"Pikachu","quantity":1,"confidence":0.9}]}');
-    expect(out).toHaveLength(1);
-    expect(out[0].cardName).toBe("Pikachu");
+    expect(out.cards).toHaveLength(1);
+    expect(out.cards[0].cardName).toBe("Pikachu");
   });
 
   it("strips ```json code fences", () => {
     const out = parseModelOutput('```json\n{"cards":[{"cardName":"Mewtwo"}]}\n```');
-    expect(out).toHaveLength(1);
-    expect(out[0].cardName).toBe("Mewtwo");
+    expect(out.cards).toHaveLength(1);
+    expect(out.cards[0].cardName).toBe("Mewtwo");
   });
 
   it("strips bare ``` fences", () => {
     const out = parseModelOutput('```\n{"cards":[{"cardName":"Charizard"}]}\n```');
-    expect(out).toHaveLength(1);
-    expect(out[0].cardName).toBe("Charizard");
+    expect(out.cards).toHaveLength(1);
+    expect(out.cards[0].cardName).toBe("Charizard");
   });
 
   it("recovers via brace-slice when prose surrounds the JSON", () => {
     const out = parseModelOutput(
       'Here is what I see:\n{"cards":[{"cardName":"Snorlax","confidence":0.8}]}\nLet me know if you need more.'
     );
-    expect(out).toHaveLength(1);
-    expect(out[0].cardName).toBe("Snorlax");
+    expect(out.cards).toHaveLength(1);
+    expect(out.cards[0].cardName).toBe("Snorlax");
   });
 
-  it("returns [] on malformed JSON", () => {
-    expect(parseModelOutput("not json at all")).toEqual([]);
-    expect(parseModelOutput("")).toEqual([]);
-    expect(parseModelOutput("{not: valid}")).toEqual([]);
+  it("returns empty for malformed JSON", () => {
+    expect(parseModelOutput("not json at all")).toEqual(EMPTY);
+    expect(parseModelOutput("")).toEqual(EMPTY);
+    expect(parseModelOutput("{not: valid}")).toEqual(EMPTY);
   });
 
-  it("returns [] when JSON is valid but lacks a cards array", () => {
-    expect(parseModelOutput('{"hello":"world"}')).toEqual([]);
-    expect(parseModelOutput('{"cards":"oops"}')).toEqual([]);
+  it("returns empty when JSON is valid but lacks a cards array", () => {
+    expect(parseModelOutput('{"hello":"world"}')).toEqual(EMPTY);
+    expect(parseModelOutput('{"cards":"oops"}')).toEqual(EMPTY);
   });
 
-  it("returns [] for the empty-cards shape", () => {
-    expect(parseModelOutput('{"cards":[]}')).toEqual([]);
+  it("returns the empty-cards shape with zero bulk by default", () => {
+    expect(parseModelOutput('{"cards":[]}')).toEqual(EMPTY);
+  });
+
+  it("parses the bulk field alongside cards (A3)", () => {
+    const out = parseModelOutput(
+      '{"cards":[{"cardName":"Pikachu"}],"bulk":{"commons":12,"uncommons":4,"rares":1,"holos":2}}'
+    );
+    expect(out.cards).toHaveLength(1);
+    expect(out.bulk).toEqual({ commons: 12, uncommons: 4, rares: 1, holos: 2 });
+  });
+
+  it("defaults bulk to zeros when the field is missing", () => {
+    const out = parseModelOutput('{"cards":[{"cardName":"Mew"}]}');
+    expect(out.bulk).toEqual({ commons: 0, uncommons: 0, rares: 0, holos: 0 });
+  });
+
+  it("clamps bulk counts to 0..99 (sanity bound)", () => {
+    const out = parseModelOutput('{"cards":[],"bulk":{"commons":500,"uncommons":-3,"rares":"x","holos":1.7}}');
+    expect(out.bulk).toEqual({ commons: 99, uncommons: 0, rares: 0, holos: 1 });
   });
 });
 
@@ -227,6 +247,7 @@ describe("runLotVision", () => {
     const result = await runLotVision("ebay-1");
     expect(result).toEqual({
       suggestions: [],
+      bulk: { commons: 0, uncommons: 0, rares: 0, holos: 0 },
       cacheStatus: "cached",
       imagesProcessed: 0,
       imagesFailed: 0,

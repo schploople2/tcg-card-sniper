@@ -18,6 +18,7 @@ A Pokémon card deal-finder. Scores live eBay listings against TCGPlayer / Cardm
 | 👤 Watched eBay sellers | [d5x](docs/features/d5x-watched-seller.md) |
 | 🔔 Web Push notifications (PWA) | [rcs](docs/features/rcs-web-push.md) |
 | 💵 Sold-comps panel (eBay completed listings via ScrapingBee) | [l6x](docs/features/l6x-sold-comps.md) |
+| 📚 Bulk-rarity bucketing for binder lots | [yam](docs/features/yam-bulk-rarity-bucketing.md) |
 
 ## Quick start
 

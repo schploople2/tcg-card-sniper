@@ -262,6 +262,26 @@ export interface LotSuggestion {
   sourceImagePosition: number | null;
 }
 
+export interface BulkCounts {
+  commons: number;
+  uncommons: number;
+  rares: number;
+  holos: number;
+}
+
+export interface BulkValuation {
+  totalCards: number;
+  low: number;
+  mid: number;
+  high: number;
+  byBucket: {
+    commons: number;
+    uncommons: number;
+    rares: number;
+    holos: number;
+  };
+}
+
 export interface LotSuggestionsResponse {
   ebayItemId: string;
   suggestions: LotSuggestion[];
@@ -269,6 +289,10 @@ export interface LotSuggestionsResponse {
   imagesProcessed: number;
   imagesFailed?: number;
   providerStatus?: "ok" | "partial-failed" | "all-failed";
+  /** A3 — unidentified cards bucketed by rarity from the same vision pass */
+  bulkCounts?: BulkCounts;
+  /** A3 — low/mid/high USD valuation of those bulk cards */
+  bulkValuation?: BulkValuation;
 }
 
 // ─── Form / mutation payloads ─────────────────────────────────────────────────

@@ -15,7 +15,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/utils";
-import type { AddedLotCard, CatalogCard, Lot, LotSuggestion } from "@/types";
+import type { AddedLotCard, BulkCounts, BulkValuation, CatalogCard, Lot, LotSuggestion } from "@/types";
+import { BulkValuationPanel } from "./BulkValuationPanel";
 
 interface LotAnalyzerModalProps {
   lot: Lot | null;
@@ -48,6 +49,8 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
   const suggestionsMutation = useLotSuggestions();
   const [suggestions, setSuggestions] = useState<LotSuggestion[] | null>(null);
   const [suggestionsWarning, setSuggestionsWarning] = useState<string | null>(null);
+  const [bulkCounts, setBulkCounts] = useState<BulkCounts | null>(null);
+  const [bulkValuation, setBulkValuation] = useState<BulkValuation | null>(null);
   // True when the last call was an all-failed 503 — distinguishes "AI is down,
   // retry" from "vision returned legitimately empty results" in the panel.
   const [aiTemporarilyDown, setAiTemporarilyDown] = useState(false);
@@ -97,6 +100,8 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
     // per-listing and would mislead if leaked across analyses.
     setSuggestions(null);
     setSuggestionsWarning(null);
+    setBulkCounts(null);
+    setBulkValuation(null);
     setAiTemporarilyDown(false);
     setAcceptedSuggestionKeys(new Set());
     setPickedCardIdByName({});
@@ -137,6 +142,10 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
     suggestionsMutation.mutate(lot.ebayItemId, {
       onSuccess: (data) => {
         setSuggestions(data.suggestions);
+        // A3 — vision now also returns bulk-rarity counts for unidentified
+        // cards, plus a low/mid/high USD band for them.
+        setBulkCounts(data.bulkCounts ?? null);
+        setBulkValuation(data.bulkValuation ?? null);
         // partial-failed means some images succeeded and some threw — keep
         // what we got and note the gap so the user knows results are partial.
         if (data.providerStatus === "partial-failed" && data.imagesFailed) {
@@ -375,6 +384,11 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
                 onSearchFromSuggestion={handleSearchFromSuggestion}
               />
 
+              {/* A3 — bulk-rarity valuation. Hides itself when totalCards is 0. */}
+              <BulkValuationPanel
+                counts={bulkCounts}
+                valuation={bulkValuation}
+              />
 
               {/* Your added cards */}
               <div className="border-b border-slate-800 p-4">
