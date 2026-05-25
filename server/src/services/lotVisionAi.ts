@@ -368,6 +368,36 @@ async function visionOneImage(
  * the cap is raised). Returns early with an empty result when the
  * provider is disabled.
  */
+/**
+ * Cached-only read of OCR results for a lot. Never calls the Anthropic
+ * API — if no images have cached ocrText, returns empty. Used by the
+ * modal's "rehydrate on open" path so re-opening a previously-analyzed
+ * lot shows its AI suggestions + bulk panel without re-prompting the
+ * user to click "Suggest cards from photos".
+ *
+ * Returns null when nothing is cached so the route can 204.
+ */
+export async function readCachedLotVision(
+  ebayItemId: string
+): Promise<{ suggestions: VisionSuggestion[]; bulk: BulkCounts } | null> {
+  const images = await prisma.lotImage.findMany({
+    where: { ebayItemId, ocrText: { not: null } },
+    orderBy: { position: "asc" },
+    select: { position: true, ocrText: true },
+  });
+  if (images.length === 0) return null;
+
+  const suggestions: VisionSuggestion[] = [];
+  let bulk: BulkCounts = { ...EMPTY_BULK };
+  for (const img of images) {
+    if (!img.ocrText) continue;
+    const cached = parseCachedSuggestions(img.ocrText, img.position);
+    suggestions.push(...cached.suggestions);
+    bulk = addBulk(bulk, cached.bulk);
+  }
+  return { suggestions, bulk };
+}
+
 export async function runLotVision(
   ebayItemId: string,
   opts: { userId?: string } = {}

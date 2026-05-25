@@ -150,6 +150,33 @@ export function useLotSuggestions() {
   });
 }
 
+/**
+ * Cached-only GET counterpart to useLotSuggestions. Used by
+ * LotAnalyzerModal on open to rehydrate AI suggestions + bulk panel
+ * without prompting the user to re-click "Suggest cards from photos".
+ *
+ * Returns null when the server has nothing cached (204) so the modal
+ * can fall back to the trigger button.
+ */
+export function useCachedLotSuggestions(ebayItemId: string | null) {
+  return useQuery({
+    queryKey: ["lots", "cached-suggestions", ebayItemId],
+    queryFn: async (): Promise<LotSuggestionsResponse | null> => {
+      const resp = await api.get<LotSuggestionsResponse>(
+        `/api/lots/${ebayItemId}/ocr-suggestions`,
+        // 204 has no body; axios resolves with data: "". Treat that as null.
+        { validateStatus: (s) => s === 200 || s === 204 }
+      );
+      if (resp.status === 204) return null;
+      return resp.data;
+    },
+    enabled: !!ebayItemId,
+    // OCR cache on the server is essentially permanent (no eviction
+    // policy in the LotImage model), so an hour client-side is fine.
+    staleTime: 60 * 60 * 1000,
+  });
+}
+
 export function useLotImages(ebayItemId: string | null) {
   return useQuery({
     queryKey: ["lots", "images", ebayItemId],

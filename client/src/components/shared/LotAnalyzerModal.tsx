@@ -4,6 +4,7 @@ import { X, Plus, Minus, Trash2, Search, Image as ImageIcon, Check, MoreHorizont
 import { PrintingPicker } from "./PrintingPicker";
 import { SuggestionsPanel } from "./SuggestionsPanel";
 import {
+  useCachedLotSuggestions,
   useLotAnnotation,
   useLotImages,
   useLotSuggestions,
@@ -68,6 +69,10 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
   const { data: annotation, isLoading: annotationLoading } =
     useLotAnnotation(ebayItemId);
   const { data: imagesData, isLoading: imagesLoading } = useLotImages(ebayItemId);
+  // Auto-rehydrate AI suggestions + bulk panel from server-cached OCR
+  // when the modal opens. Falls back to null when nothing's cached, and
+  // the panel shows the "Suggest cards from photos" trigger as before.
+  const { data: cachedSuggestionsData } = useCachedLotSuggestions(ebayItemId);
   const saveAnnotation = useSaveAnnotation();
   const suggestionsMutation = useLotSuggestions();
   // u8y — pin/unpin toggle for the current lot
@@ -152,6 +157,17 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
     setPickedCardIdByKey({});
     setOpenPickerKey(null);
   }, [lot?.ebayItemId, lot]);
+
+  // When server-cached OCR data lands (or the lot changes), hydrate the
+  // AI suggestions + bulk panels so a re-opened lot shows what was
+  // analyzed before without forcing the user to click "Suggest" again.
+  // No-op when nothing is cached — the panel falls back to the trigger.
+  useEffect(() => {
+    if (!cachedSuggestionsData) return;
+    setSuggestions(cachedSuggestionsData.suggestions);
+    setBulkCounts(cachedSuggestionsData.bulkCounts ?? null);
+    setBulkValuation(cachedSuggestionsData.bulkValuation ?? null);
+  }, [cachedSuggestionsData]);
 
   // Local index of card metadata for the in-modal cards-list rendering.
   // Catalog query results land here keyed by id so subsequent renders can

@@ -17,6 +17,7 @@ import { searchEbayLots } from "../services/ebay.js";
 import { getLotImages } from "../services/lotImages.js";
 import {
   dedupeSuggestions,
+  readCachedLotVision,
   runLotVision,
   visionEnabled,
 } from "../services/lotVisionAi.js";
@@ -368,6 +369,61 @@ lotsRouter.get("/_admin/ocr-usage", async (_req, res, next) => {
         imagesProcessed: rows.reduce((n, r) => n + r.imagesProcessed, 0),
         callsMade: rows.reduce((n, r) => n + r.callsMade, 0),
       },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/lots/:ebayItemId/ocr-suggestions
+ *
+ * Cached-only fetch — never calls Anthropic. Used by LotAnalyzerModal on
+ * open to rehydrate the AI suggestions + bulk valuation if the lot has
+ * been analyzed before. Returns 204 when nothing is cached so the client
+ * can fall back to the "Suggest cards from photos" button.
+ *
+ * Same response shape as POST when there IS cached data, minus
+ * imagesProcessed/imagesFailed/providerStatus (which only describe a
+ * fresh run).
+ */
+lotsRouter.get("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
+  try {
+    const cached = await readCachedLotVision(req.params.ebayItemId);
+    if (!cached) return res.status(204).end();
+
+    const merged = dedupeSuggestions(cached.suggestions);
+    const extracted = await namesToExtracted(
+      merged.map((s) => ({
+        name: s.name,
+        quantity: s.quantity,
+        confidence: s.confidence,
+        setHint: s.setHint,
+        cardNumber: s.cardNumber,
+      }))
+    );
+    const valuation = await valueLot(extracted);
+    const mergedByName = new Map(merged.map((m) => [m.name.toLowerCase(), m]));
+    const suggestions = valuation.parsedCards.map((parsed) => {
+      const m = mergedByName.get(parsed.name.toLowerCase());
+      return {
+        name: parsed.name,
+        quantity: parsed.quantity,
+        confidence: parsed.confidence,
+        candidates: parsed.candidates,
+        setHint: m?.setHint ?? null,
+        cardNumber: m?.cardNumber ?? null,
+        sourceImagePosition: m?.sourceImagePosition ?? null,
+      };
+    });
+
+    const bulkValuation = valueBulk(cached.bulk);
+    res.json({
+      ebayItemId: req.params.ebayItemId,
+      suggestions,
+      cacheStatus: "cached" as const,
+      bulkCounts: cached.bulk,
+      bulkValuation,
     });
   } catch (err) {
     next(err);
