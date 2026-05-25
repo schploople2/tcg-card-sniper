@@ -95,6 +95,7 @@ model User {
   lotAnnotations  LotAnnotation[]
   ocrUsage        OcrUsage[]
   savedLotSearches SavedLotSearch[]
+  savedLots        SavedLot[]
   watchedSellers  WatchedSeller[]
   pushSubscriptions PushSubscription[]
 }
@@ -223,6 +224,34 @@ model SavedLotSearch {
 
   @@unique([userId, query])
   @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SavedLot — u8y: pinned lot listings for later viewing.
+// One row per (userId, ebayItemId). Snapshots title / image / url /
+// listingPrice at save time so the saved list still renders after the
+// underlying Lot row evicts (30-min TTL).
+// ─────────────────────────────────────────────────────────────────────────────
+
+model SavedLot {
+  id            String   @id @default(cuid())
+  userId        String
+  /// Canonical eBay item id form (e.g. "v1|306958101447|0") — same shape used by Lot.ebayItemId.
+  ebayItemId    String
+  // Snapshot fields persisted at save time:
+  title         String
+  imageUrl      String?
+  ebayUrl       String
+  listingPrice  Decimal  @db.Decimal(10, 2)
+  /// Optional free-text note from the user ("waiting for end-of-auction snipe", etc.).
+  note          String?
+
+  createdAt     DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, ebayItemId])
+  @@index([userId, createdAt])
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

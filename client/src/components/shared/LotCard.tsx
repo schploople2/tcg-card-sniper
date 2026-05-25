@@ -1,10 +1,15 @@
-import { ExternalLink, Layers, Wand2 } from "lucide-react";
+import { Bookmark, ExternalLink, Layers, Wand2 } from "lucide-react";
 import { DealScoreBadge } from "./DealScoreBadge";
 import { CountdownTimer } from "./CountdownTimer";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatCurrency } from "@/lib/utils";
 import type { Lot, ParsedLotCard } from "@/types";
+import {
+  useCreateSavedLot,
+  useDeleteSavedLot,
+  useIsLotSaved,
+} from "@/hooks/useSavedLots";
 
 interface LotCardProps {
   lot: Lot;
@@ -29,6 +34,25 @@ interface LotCardProps {
 export function LotCard({ lot, onAnalyze }: LotCardProps) {
   const hasAuction = lot.kind === "AUCTION_ONLY" || lot.kind === "BIN_PLUS_AUCTION";
   const sanityFlag = lot.highEstimate > 5 * lot.totalCost && lot.lowEstimate > 0;
+
+  // u8y — bookmark toggle, reads from the shared react-query cache.
+  const { isSaved, savedId } = useIsLotSaved(lot.ebayItemId);
+  const createSaved = useCreateSavedLot();
+  const deleteSaved = useDeleteSavedLot();
+  const togglePending = createSaved.isPending || deleteSaved.isPending;
+  function handleToggleSave() {
+    if (isSaved && savedId) {
+      deleteSaved.mutate(savedId);
+    } else if (!isSaved) {
+      createSaved.mutate({
+        ebayItemId: lot.ebayItemId,
+        title: lot.title,
+        imageUrl: lot.imageUrl,
+        ebayUrl: lot.ebayUrl,
+        listingPrice: lot.listingPrice,
+      });
+    }
+  }
 
   return (
     <div className="rounded-xl border border-slate-800 bg-[#0f172a] p-4 space-y-3">
@@ -66,6 +90,24 @@ export function LotCard({ lot, onAnalyze }: LotCardProps) {
           </div>
         </div>
         <div className="shrink-0 flex flex-col gap-1.5">
+          <button
+            type="button"
+            onClick={handleToggleSave}
+            disabled={togglePending}
+            aria-label={isSaved ? "Remove from Saved" : "Save lot for later"}
+            data-testid="lot-bookmark"
+            className={`self-end p-1 rounded transition disabled:opacity-50 ${
+              isSaved
+                ? "text-[#F5C518] hover:text-[#f0ba00]"
+                : "text-slate-500 hover:text-slate-200"
+            }`}
+            title={isSaved ? "Saved — click to remove" : "Save this lot for later"}
+          >
+            <Bookmark
+              className="h-4 w-4"
+              fill={isSaved ? "currentColor" : "none"}
+            />
+          </button>
           <a
             href={lot.ebayUrl}
             target="_blank"

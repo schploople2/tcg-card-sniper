@@ -13,6 +13,7 @@ import { alertsRouter } from "./routes/alerts.js";
 import { lotsRouter } from "./routes/lots.js";
 import { settingsRouter } from "./routes/settings.js";
 import { savedLotSearchesRouter } from "./routes/savedLotSearches.js";
+import { savedLotsRouter } from "./routes/savedLots.js";
 import { watchedSellersRouter } from "./routes/watchedSellers.js";
 import { pushRouter } from "./routes/push.js";
 import { startRefreshJob } from "./jobs/refreshListings.js";
@@ -45,6 +46,7 @@ app.use("/api/alerts", alertsRouter);
 app.use("/api/lots", lotsRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/saved-lot-searches", savedLotSearchesRouter);
+app.use("/api/saved-lots", savedLotsRouter);
 app.use("/api/watched-sellers", watchedSellersRouter);
 app.use("/api/push", pushRouter);
 

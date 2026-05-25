@@ -8,6 +8,8 @@ import { CardDetailDrawer } from "@/components/shared/CardDetailDrawer";
 import { LotCard } from "@/components/shared/LotCard";
 import { LotAnalyzerModal } from "@/components/shared/LotAnalyzerModal";
 import { useLotSearch } from "@/hooks/useLots";
+import { useSavedLots } from "@/hooks/useSavedLots";
+import { SavedLotsTab } from "@/components/shared/SavedLotsTab";
 import { useCreateSavedLotSearch } from "@/hooks/useSavedLotSearches";
 import type { Lot } from "@/types";
 import { useAllListings, useRefreshAllListings } from "@/hooks/useListings";
@@ -145,13 +147,16 @@ export default function Dashboard() {
   // is opinionated — it always sorts by end time ascending and only shows
   // active auctions ending in the future.
   // Pb: added a third tab for multi-card lots.
-  const [tab, setTab] = useState<"all" | "auctions" | "lots">("all");
+  const [tab, setTab] = useState<"all" | "auctions" | "lots" | "saved-lots">("all");
   const [lotQuery, setLotQuery] = useState("");
   // Debounce-ish: only kick off the lot search when the user explicitly
   // submits or pauses typing. The hook is enabled when there's >=2 chars
   // AND the user has either typed something stable or hit search.
   const [lotQuerySubmitted, setLotQuerySubmitted] = useState("");
   const lotSearch = useLotSearch(lotQuerySubmitted, { enabled: tab === "lots" });
+  // u8y — saved-lots count for the tab badge. Always-on query (small payload).
+  const { data: savedLotsData } = useSavedLots();
+  const savedLotsCount = savedLotsData?.savedLots.length ?? 0;
   // Pb-next: analyzer modal — null = closed, otherwise the lot under analysis.
   const [analyzingLot, setAnalyzingLot] = useState<Lot | null>(null);
 
@@ -318,7 +323,7 @@ export default function Dashboard() {
       {/* P5: Tabs split single-card BIN/auction listings from a dedicated
           live-auctions feed. The latter is sorted by end time so users can
           scan "what's about to close that I might bid on". */}
-      <Tabs value={tab} onValueChange={(v) => setTab(v as "all" | "auctions" | "lots")} className="mb-4">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as "all" | "auctions" | "lots" | "saved-lots")} className="mb-4">
         <TabsList className="bg-slate-800/60 border border-slate-700">
           <TabsTrigger value="all">All listings</TabsTrigger>
           <TabsTrigger value="auctions">
@@ -330,6 +335,14 @@ export default function Dashboard() {
             )}
           </TabsTrigger>
           <TabsTrigger value="lots">Lots</TabsTrigger>
+          <TabsTrigger value="saved-lots">
+            Saved
+            {savedLotsCount > 0 && (
+              <span className="ml-1.5 inline-flex items-center justify-center rounded-full bg-amber-900/40 px-1.5 py-0.5 text-[10px] font-medium text-amber-300 border border-amber-700/40">
+                {savedLotsCount}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
       </Tabs>
 
@@ -342,6 +355,8 @@ export default function Dashboard() {
           isLoading={lotSearch.isFetching}
           onAnalyze={setAnalyzingLot}
         />
+      ) : tab === "saved-lots" ? (
+        <SavedLotsTab onAnalyze={setAnalyzingLot} />
       ) : (
       <>
       {/* Filters — shared across both tabs except sort, which is fixed to

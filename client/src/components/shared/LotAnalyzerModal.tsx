@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Plus, Minus, Trash2, Search, Image as ImageIcon, Check, MoreHorizontal } from "lucide-react";
+import { X, Plus, Minus, Trash2, Search, Image as ImageIcon, Check, MoreHorizontal, Bookmark } from "lucide-react";
 import { PrintingPicker } from "./PrintingPicker";
 import { SuggestionsPanel } from "./SuggestionsPanel";
 import {
@@ -10,6 +10,11 @@ import {
   useSaveAnnotation,
 } from "@/hooks/useLots";
 import { useCatalogSearch } from "@/hooks/useCatalog";
+import {
+  useCreateSavedLot,
+  useDeleteSavedLot,
+  useIsLotSaved,
+} from "@/hooks/useSavedLots";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -47,6 +52,25 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
   const { data: imagesData, isLoading: imagesLoading } = useLotImages(ebayItemId);
   const saveAnnotation = useSaveAnnotation();
   const suggestionsMutation = useLotSuggestions();
+  // u8y — pin/unpin toggle for the current lot
+  const { isSaved: isLotSaved, savedId: savedLotId } = useIsLotSaved(ebayItemId);
+  const createSavedLot = useCreateSavedLot();
+  const deleteSavedLot = useDeleteSavedLot();
+  const savedLotPending = createSavedLot.isPending || deleteSavedLot.isPending;
+  function handleToggleSaveLot() {
+    if (!lot) return;
+    if (isLotSaved && savedLotId) {
+      deleteSavedLot.mutate(savedLotId);
+    } else if (!isLotSaved) {
+      createSavedLot.mutate({
+        ebayItemId: lot.ebayItemId,
+        title: lot.title,
+        imageUrl: lot.imageUrl,
+        ebayUrl: lot.ebayUrl,
+        listingPrice: lot.listingPrice,
+      });
+    }
+  }
   const [suggestions, setSuggestions] = useState<LotSuggestion[] | null>(null);
   const [suggestionsWarning, setSuggestionsWarning] = useState<string | null>(null);
   const [bulkCounts, setBulkCounts] = useState<BulkCounts | null>(null);
@@ -485,6 +509,23 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
               Saved analyses persist — they re-appear next time this listing surfaces.
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                onClick={handleToggleSaveLot}
+                disabled={savedLotPending}
+                className={`gap-1.5 ${
+                  isLotSaved
+                    ? "text-[#F5C518] hover:text-[#f0ba00]"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+                data-testid="modal-save-lot"
+              >
+                <Bookmark
+                  className="h-4 w-4"
+                  fill={isLotSaved ? "currentColor" : "none"}
+                />
+                {isLotSaved ? "Saved" : "Save lot"}
+              </Button>
               <Button
                 variant="ghost"
                 onClick={onClose}
