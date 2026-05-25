@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Plus, Minus, Trash2, Search, Image as ImageIcon, Sparkles, Check, MoreHorizontal } from "lucide-react";
+import { X, Plus, Minus, Trash2, Search, Image as ImageIcon, Check, MoreHorizontal } from "lucide-react";
 import { PrintingPicker } from "./PrintingPicker";
+import { SuggestionsPanel } from "./SuggestionsPanel";
 import {
   useLotAnnotation,
   useLotImages,
@@ -354,86 +355,26 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
                 )}
               </div>
 
-              {/* AI suggestions (Pc) — lazy, click to load */}
-              <div className="border-b border-slate-800 p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-[11px] uppercase tracking-wide text-slate-500 flex items-center gap-1.5">
-                    <Sparkles className="h-3 w-3" /> AI suggestions
-                  </p>
-                  {suggestions && suggestions.some((s) => s.confidence >= 0.8) && (
-                    <button
-                      type="button"
-                      onClick={handleAcceptAllHighConfidence}
-                      className="text-[10px] text-[#F5C518] hover:underline"
-                    >
-                      Add all high-confidence
-                    </button>
-                  )}
-                </div>
-                {aiTemporarilyDown ? (
-                  <div className="space-y-2">
-                    <p className="text-xs text-amber-400">
-                      AI vision is temporarily unavailable. Please try again
-                      later.
-                    </p>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={suggestionsMutation.isPending || images.length === 0}
-                      onClick={handleRequestSuggestions}
-                      className="text-xs text-slate-300 hover:text-white hover:bg-slate-800 gap-1.5 h-auto py-1.5 px-2.5"
-                    >
-                      <Sparkles className="h-3.5 w-3.5" />
-                      {suggestionsMutation.isPending ? "Retrying…" : "Retry"}
-                    </Button>
-                  </div>
-                ) : suggestions === null ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    disabled={suggestionsMutation.isPending || images.length === 0}
-                    onClick={handleRequestSuggestions}
-                    className="text-xs text-slate-300 hover:text-white hover:bg-slate-800 gap-1.5 h-auto py-1.5 px-2.5"
-                    title="Ask Claude Vision to identify cards in the listing photos"
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    {suggestionsMutation.isPending
-                      ? "Analyzing photos…"
-                      : "Suggest cards from photos"}
-                  </Button>
-                ) : suggestions.length === 0 ? (
-                  <p className="text-xs text-slate-600 italic">
-                    No cards identified in the photos.
-                  </p>
-                ) : (
-                  <div className="space-y-2">
-                    {suggestionsWarning && (
-                      <p className="text-[11px] text-amber-400">
-                        {suggestionsWarning}
-                      </p>
-                    )}
-                    <div className="flex flex-wrap gap-1.5">
-                    {suggestions.map((s) => (
-                      <SuggestionChip
-                        key={`${s.name}-${s.sourceImagePosition ?? "?"}`}
-                        suggestion={s}
-                        accepted={acceptedSuggestionKeys.has(s.name)}
-                        currentCardId={pickedCardIdByName[s.name]}
-                        pickerOpen={openPickerName === s.name}
-                        onAccept={() => handleAcceptSuggestion(s)}
-                        onPickerOpenChange={(open) =>
-                          setOpenPickerName(open ? s.name : null)
-                        }
-                        onPick={(cardId) => handlePickPrinting(s, cardId)}
-                        onSearch={handleSearchFromSuggestion}
-                      />
-                    ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+              {/* AI suggestions (Pc) — extracted to SuggestionsPanel for testability */}
+              <SuggestionsPanel
+                aiTemporarilyDown={aiTemporarilyDown}
+                suggestions={suggestions}
+                suggestionsWarning={suggestionsWarning}
+                isPending={suggestionsMutation.isPending}
+                imagesCount={images.length}
+                acceptedSuggestionKeys={acceptedSuggestionKeys}
+                pickedCardIdByName={pickedCardIdByName}
+                openPickerName={openPickerName}
+                onRequestSuggestions={handleRequestSuggestions}
+                onAcceptAllHighConfidence={handleAcceptAllHighConfidence}
+                onAcceptSuggestion={handleAcceptSuggestion}
+                onPickerOpenChange={(name, open) =>
+                  setOpenPickerName(open ? name : null)
+                }
+                onPickPrinting={handlePickPrinting}
+                onSearchFromSuggestion={handleSearchFromSuggestion}
+              />
+
 
               {/* Your added cards */}
               <div className="border-b border-slate-800 p-4">

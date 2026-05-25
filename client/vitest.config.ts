@@ -14,5 +14,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
     css: false,
+    // e2e/ is Playwright territory — don't double-load these as vitest specs.
+    exclude: ["node_modules", "dist", "e2e/**"],
   },
 });

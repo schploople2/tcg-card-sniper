@@ -2,7 +2,7 @@
 
 This file provides instructions and context for AI coding agents working on this project.
 
-<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:7510c1e2 -->
+<!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:ccf33ec3 -->
 ## Beads Issue Tracker
 
 This project uses **bd (beads)** for issue tracking. Run `bd prime` to see full workflow context and commands.
@@ -36,6 +36,7 @@ bd close <id>         # Complete work
 4. **PUSH TO REMOTE** - This is MANDATORY:
    ```bash
    git pull --rebase
+   bd dolt push
    git push
    git status  # MUST show "up to date with origin"
    ```
@@ -51,20 +52,35 @@ bd close <id>         # Complete work
 <!-- END BEADS INTEGRATION -->
 
 
-## Build & Test
+## Project
 
-_Add your build and test commands here_
+Pokémon card deal-finder. Express/Prisma/Postgres server hosting cron-driven eBay listing refresh + Anthropic Vision lot OCR + multi-channel alerts (in-app bell, Discord webhooks, web push). React/Vite client. Deployed on Railway as two services (`server`, `client`).
+
+## Where to look
+
+- **[README.md](README.md)** — start here: pitch, env vars, quick start, project layout
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — services, data model, jobs, alert pipeline
+- **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)** — Railway specifics + recurring gotchas
+- **[docs/TESTING.md](docs/TESTING.md)** — server/component/e2e layers + how to run each
+- **[docs/features/](docs/features/)** — one doc per shipped feature, named `<bead-id>-<slug>.md`
+
+## Build & test
 
 ```bash
-# Example:
-# npm install
-# npm test
+pnpm install
+pnpm dev                           # server + client in parallel
+pnpm --filter server test          # vitest, ~290 tests
+pnpm --filter client test          # vitest + RTL, ~34 tests
+pnpm --filter client test:e2e      # Playwright (needs PW_USER/PW_PASS)
+pnpm --filter server build && pnpm --filter client build
 ```
 
-## Architecture Overview
+## Conventions worth knowing
 
-_Add a brief overview of your project architecture_
-
-## Conventions & Patterns
-
-_Add your project-specific conventions here_
+- **Beads, not TodoWrite.** All task tracking lives in `bd`. Use `bd create` / `bd update --claim` / `bd close`. See the integration block above.
+- **Every feature bead requires a `docs/features/<id>-*.md` doc AND a hands-on test before `bd close`.** Convention saved in user memory.
+- **Server auto-deploys** from `main` on git push. **Client is manual:** `RAILWAY_CALLER=... railway up ./client --path-as-root --service client`. Don't try to wire client auto-deploy without reading [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) first.
+- **Node ≥20** is required (see `engines` in root `package.json`). `cheerio` → `undici@7` references the Node-20 `File` global — Node 18 hard-crashes on require. `NIXPACKS_NODE_VERSION=20` is set on Railway as a backstop.
+- **Prisma + manual trigram indexes:** `Card.name_trgm_idx` and `Card.setName_trgm_idx` are created via raw SQL (Prisma can't model them). Every generated migration tries to `DROP` them — **strip those `DROP INDEX` statements before applying.** We've hit this twice.
+- **Sold-comp scrapes go through ScrapingBee** (set `SCRAPINGBEE_API_KEY`). Direct eBay scraping from datacenter IPs 403s. See [docs/features/l6x-sold-comps.md](docs/features/l6x-sold-comps.md).
+- **Tests live next to code:** `server/src/services/__tests__/*.test.ts` for server, `client/src/components/shared/__tests__/*.test.tsx` for client, `client/e2e/*.spec.ts` for Playwright.

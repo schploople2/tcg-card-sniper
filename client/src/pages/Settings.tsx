@@ -344,7 +344,7 @@ function SavedSearchesSection() {
   );
 }
 
-function PushSection() {
+export function PushSection() {
   const { status, busy, subscribe, unsubscribe } = usePushSubscription();
 
   return (
