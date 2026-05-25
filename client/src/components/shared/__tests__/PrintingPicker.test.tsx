@@ -26,6 +26,7 @@ function makeSuggestion(overrides: Partial<LotSuggestion> = {}): LotSuggestion {
         setName: "Sword & Shield",
         setReleaseDate: "2020-02-07",
         number: "114",
+        imageSmall: "https://i.example/swsh8-base.png",
         market: 15.2,
         currency: "USD",
       },
@@ -34,6 +35,7 @@ function makeSuggestion(overrides: Partial<LotSuggestion> = {}): LotSuggestion {
         setName: "Fusion Strike",
         setReleaseDate: "2021-11-12",
         number: "269",
+        imageSmall: "https://i.example/swsh8-269.png",
         market: 215.3,
         currency: "USD",
       },
@@ -42,6 +44,7 @@ function makeSuggestion(overrides: Partial<LotSuggestion> = {}): LotSuggestion {
         setName: "Pokémon GO Promo",
         setReleaseDate: null,
         number: "P1",
+        imageSmall: null,
         market: null,
         currency: "USD",
       },
@@ -139,5 +142,24 @@ describe("PrintingPicker", () => {
     // Other rows should not
     const aiRow = screen.getByTestId("printing-row-swsh8-base");
     expect(aiRow.className).not.toMatch(/emerald-900/);
+  });
+
+  it("8ni: renders a thumbnail <img> for candidates with imageSmall", () => {
+    renderPicker();
+    const thumb = screen.getByTestId(
+      "printing-thumb-swsh8-base"
+    ) as HTMLImageElement;
+    expect(thumb).toBeInTheDocument();
+    expect(thumb.src).toBe("https://i.example/swsh8-base.png");
+    expect(thumb.getAttribute("loading")).toBe("lazy");
+  });
+
+  it("8ni: renders the Layers fallback for candidates with imageSmall=null", () => {
+    renderPicker();
+    expect(
+      screen.getByTestId("printing-thumb-fallback-promo-1")
+    ).toBeInTheDocument();
+    // No <img> for the null-imageSmall candidate
+    expect(screen.queryByTestId("printing-thumb-promo-1")).not.toBeInTheDocument();
   });
 });

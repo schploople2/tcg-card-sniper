@@ -84,6 +84,9 @@ export async function valueLot(
       number: true,
       setName: true,
       setReleaseDate: true,
+      // 8ni — surface the thumbnail through to PrintingPicker so the user
+      // can visually disambiguate two printings without leaving the modal.
+      imageSmall: true,
       tcgplayerPrices: true,
       cardmarketPrices: true,
     },
@@ -121,6 +124,7 @@ export async function valueLot(
         setName: c.setName,
         setReleaseDate: c.setReleaseDate,
         number: c.number,
+        imageSmall: c.imageSmall ?? null,
         market,
         currency,
       };

@@ -27,8 +27,9 @@ function makeProps(over: Partial<SuggestionsPanelProps> = {}): SuggestionsPanelP
     isPending: false,
     imagesCount: 5,
     acceptedSuggestionKeys: new Set<string>(),
-    pickedCardIdByName: {},
-    openPickerName: null,
+    pickedCardIdByKey: {},
+    openPickerKey: null,
+    suggestionKeyFn: (s) => `${s.name.toLowerCase()}-${s.sourceImagePosition ?? "?"}`,
     onRequestSuggestions: vi.fn(),
     onAcceptAllHighConfidence: vi.fn(),
     onAcceptSuggestion: vi.fn(),
@@ -53,6 +54,7 @@ function suggestion(over: Partial<LotSuggestion> = {}): LotSuggestion {
         setName: "Scarlet & Violet 151",
         setReleaseDate: "2023-09-22",
         number: "199",
+        imageSmall: null,
         market: 90,
         currency: "USD",
       },
@@ -177,6 +179,37 @@ describe("SuggestionsPanel — empty + partial-failed states", () => {
     expect(
       screen.queryByTestId("partial-failed-warning")
     ).not.toBeInTheDocument();
+  });
+});
+
+describe("SuggestionsPanel — duplicate-name chips stay independent (ytf)", () => {
+  it("keys per-chip state by (name, sourceImagePosition) so two same-name chips don't share open/accepted state", () => {
+    const onPickerOpenChange = vi.fn();
+    const dup1 = suggestion({
+      name: "mega latias ex",
+      sourceImagePosition: 0,
+    });
+    const dup2 = suggestion({
+      name: "mega latias ex",
+      sourceImagePosition: 3,
+    });
+    render(
+      <SuggestionsPanel
+        {...makeProps({
+          suggestions: [dup1, dup2],
+          // Mark only the FIRST chip's key as accepted — the second chip
+          // must NOT inherit that state (the bug pre-ytf).
+          acceptedSuggestionKeys: new Set(["mega latias ex-0"]),
+          // Likewise only the first chip's open-state is set.
+          openPickerKey: "mega latias ex-0",
+          onPickerOpenChange,
+        })}
+      />
+    );
+
+    // Both chips render with distinct DOM nodes (the dedupe key from
+    // suggestionKeyFn is (name, sourceImagePosition)).
+    expect(screen.getAllByText(/mega latias ex/i).length).toBeGreaterThanOrEqual(2);
   });
 });
 

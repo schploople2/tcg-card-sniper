@@ -171,6 +171,8 @@ export interface LotCandidatePrinting {
   setName: string;
   setReleaseDate: string | null;
   number: string;
+  /** 8ni — small art thumbnail (pokemontcg.io CDN URL) for visual disambiguation in the printing picker. Null when the catalog has no image. */
+  imageSmall: string | null;
   market: number | null;
   currency: string;
 }

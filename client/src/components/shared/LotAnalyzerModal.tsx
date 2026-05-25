@@ -29,6 +29,20 @@ interface LotAnalyzerModalProps {
 }
 
 /**
+ * ytf: Stable per-chip identity. Vision can return the same `name` twice
+ * (a card visible in two photos surfaces as two distinct chips with
+ * different sourceImagePosition). Keying per-chip state by name alone
+ * collides — accepting one chip would mark both accepted, and Radix's
+ * picker would close immediately on the second click because state
+ * resolved to the first chip's DOM anchor.
+ *
+ * Shape mirrors the React `key=` used in SuggestionsPanel.
+ */
+function suggestionKey(s: LotSuggestion): string {
+  return `${s.name.toLowerCase()}-${s.sourceImagePosition ?? "?"}`;
+}
+
+/**
  * Modal where a user manually identifies the cards in a lot.
  *
  * Layout (lg screen):
@@ -81,14 +95,17 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
   const [acceptedSuggestionKeys, setAcceptedSuggestionKeys] = useState<Set<string>>(
     new Set()
   );
-  // suggestion.name -> the cardId currently contributed by this suggestion.
+  // ytf: suggestionKey -> the cardId currently contributed by this chip.
   // Lets "Change printing" know which addedCard to remove before adding the
   // new pick — otherwise we'd leave the old printing behind and double-count.
-  const [pickedCardIdByName, setPickedCardIdByName] = useState<
+  // Keyed by suggestionKey (not raw name) so vision returning the same name
+  // twice across different photos doesn't make the two chips share state.
+  const [pickedCardIdByKey, setPickedCardIdByKey] = useState<
     Record<string, string>
   >({});
-  // Which suggestion (by name) currently has the printing picker popover open.
-  const [openPickerName, setOpenPickerName] = useState<string | null>(null);
+  // Which chip currently has the printing picker popover open — by
+  // suggestionKey, again to keep duplicate-name chips independent.
+  const [openPickerKey, setOpenPickerKey] = useState<string | null>(null);
   // Anchor for scroll-into-view when the picker's empty-state "Search the
   // full catalog" link pre-fills the query.
   const catalogSearchInputRef = useRef<HTMLInputElement | null>(null);
@@ -128,8 +145,8 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
     setBulkValuation(null);
     setAiTemporarilyDown(false);
     setAcceptedSuggestionKeys(new Set());
-    setPickedCardIdByName({});
-    setOpenPickerName(null);
+    setPickedCardIdByKey({});
+    setOpenPickerKey(null);
   }, [lot?.ebayItemId, lot]);
 
   // Local index of card metadata for the in-modal cards-list rendering.
@@ -211,7 +228,8 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
    * printings of the "same" card stacked in the additions list.
    */
   function handlePickPrinting(s: LotSuggestion, cardId: string) {
-    const previousCardId = pickedCardIdByName[s.name];
+    const key = suggestionKey(s);
+    const previousCardId = pickedCardIdByKey[key];
     setAddedCards((prev) => {
       // Remove the old printing if this is a "change printing" action.
       const filtered =
@@ -228,8 +246,8 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
       }
       return [...filtered, { cardId, quantity: s.quantity, note: null }];
     });
-    setAcceptedSuggestionKeys((prev) => new Set(prev).add(s.name));
-    setPickedCardIdByName((prev) => ({ ...prev, [s.name]: cardId }));
+    setAcceptedSuggestionKeys((prev) => new Set(prev).add(key));
+    setPickedCardIdByKey((prev) => ({ ...prev, [key]: cardId }));
   }
 
   /**
@@ -239,7 +257,7 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
    */
   function handleSearchFromSuggestion(name: string) {
     setCatalogQuery(name);
-    setOpenPickerName(null);
+    setOpenPickerKey(null);
     // Defer the scroll so the input has time to render any pending state.
     requestAnimationFrame(() => {
       catalogSearchInputRef.current?.scrollIntoView({
@@ -253,7 +271,7 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
   function handleAcceptAllHighConfidence() {
     if (!suggestions) return;
     for (const s of suggestions) {
-      if (s.confidence >= 0.8 && !acceptedSuggestionKeys.has(s.name)) {
+      if (s.confidence >= 0.8 && !acceptedSuggestionKeys.has(suggestionKey(s))) {
         handleAcceptSuggestion(s);
       }
     }
@@ -399,13 +417,14 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
                 isPending={suggestionsMutation.isPending}
                 imagesCount={images.length}
                 acceptedSuggestionKeys={acceptedSuggestionKeys}
-                pickedCardIdByName={pickedCardIdByName}
-                openPickerName={openPickerName}
+                pickedCardIdByKey={pickedCardIdByKey}
+                openPickerKey={openPickerKey}
+                suggestionKeyFn={suggestionKey}
                 onRequestSuggestions={handleRequestSuggestions}
                 onAcceptAllHighConfidence={handleAcceptAllHighConfidence}
                 onAcceptSuggestion={handleAcceptSuggestion}
-                onPickerOpenChange={(name, open) =>
-                  setOpenPickerName(open ? name : null)
+                onPickerOpenChange={(key, open) =>
+                  setOpenPickerKey(open ? key : null)
                 }
                 onPickPrinting={handlePickPrinting}
                 onSearchFromSuggestion={handleSearchFromSuggestion}

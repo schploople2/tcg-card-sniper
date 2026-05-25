@@ -1,6 +1,6 @@
 import * as Popover from "@radix-ui/react-popover";
 import type { ReactNode } from "react";
-import { Sparkles, Search } from "lucide-react";
+import { Sparkles, Search, Layers } from "lucide-react";
 import type { LotSuggestion } from "@/types";
 import { formatCurrency } from "@/lib/utils";
 
@@ -106,6 +106,25 @@ function CandidateRow({ candidate, isAiPick, isCurrentPick, onClick }: Candidate
           : "hover:bg-slate-800"
       }`}
     >
+      {/* 8ni — small art thumbnail to visually disambiguate two printings.
+          Falls back to the same Layers icon used elsewhere when the catalog
+          row has no imageSmall. */}
+      {candidate.imageSmall ? (
+        <img
+          src={candidate.imageSmall}
+          alt=""
+          loading="lazy"
+          className="h-12 w-9 shrink-0 rounded-sm object-contain bg-slate-900"
+          data-testid={`printing-thumb-${candidate.cardId}`}
+        />
+      ) : (
+        <div
+          className="h-12 w-9 shrink-0 rounded-sm bg-slate-900 flex items-center justify-center"
+          data-testid={`printing-thumb-fallback-${candidate.cardId}`}
+        >
+          <Layers className="h-3 w-3 text-slate-600" />
+        </div>
+      )}
       <div className="min-w-0 flex-1">
         <p className="text-xs text-slate-200 truncate">
           {candidate.setName}

@@ -20,14 +20,17 @@ export interface SuggestionsPanelProps {
   isPending: boolean;
   imagesCount: number;
 
+  // ytf: per-chip state keyed by suggestionKeyFn(s), not s.name — so
+  // duplicate-name suggestions across photos don't share state.
   acceptedSuggestionKeys: Set<string>;
-  pickedCardIdByName: Record<string, string>;
-  openPickerName: string | null;
+  pickedCardIdByKey: Record<string, string>;
+  openPickerKey: string | null;
+  suggestionKeyFn: (s: LotSuggestion) => string;
 
   onRequestSuggestions: () => void;
   onAcceptAllHighConfidence: () => void;
   onAcceptSuggestion: (s: LotSuggestion) => void;
-  onPickerOpenChange: (name: string, open: boolean) => void;
+  onPickerOpenChange: (key: string, open: boolean) => void;
   onPickPrinting: (s: LotSuggestion, cardId: string) => void;
   onSearchFromSuggestion: (name: string) => void;
 }
@@ -39,8 +42,9 @@ export function SuggestionsPanel({
   isPending,
   imagesCount,
   acceptedSuggestionKeys,
-  pickedCardIdByName,
-  openPickerName,
+  pickedCardIdByKey,
+  openPickerKey,
+  suggestionKeyFn,
   onRequestSuggestions,
   onAcceptAllHighConfidence,
   onAcceptSuggestion,
@@ -117,19 +121,22 @@ export function SuggestionsPanel({
             className="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto pr-1"
             data-testid="suggestion-chips"
           >
-            {suggestions.map((s) => (
-              <SuggestionChip
-                key={`${s.name}-${s.sourceImagePosition ?? "?"}`}
-                suggestion={s}
-                accepted={acceptedSuggestionKeys.has(s.name)}
-                currentCardId={pickedCardIdByName[s.name]}
-                pickerOpen={openPickerName === s.name}
-                onAccept={() => onAcceptSuggestion(s)}
-                onPickerOpenChange={(open) => onPickerOpenChange(s.name, open)}
-                onPick={(cardId) => onPickPrinting(s, cardId)}
-                onSearch={onSearchFromSuggestion}
-              />
-            ))}
+            {suggestions.map((s) => {
+              const k = suggestionKeyFn(s);
+              return (
+                <SuggestionChip
+                  key={k}
+                  suggestion={s}
+                  accepted={acceptedSuggestionKeys.has(k)}
+                  currentCardId={pickedCardIdByKey[k]}
+                  pickerOpen={openPickerKey === k}
+                  onAccept={() => onAcceptSuggestion(s)}
+                  onPickerOpenChange={(open) => onPickerOpenChange(k, open)}
+                  onPick={(cardId) => onPickPrinting(s, cardId)}
+                  onSearch={onSearchFromSuggestion}
+                />
+              );
+            })}
           </div>
         </div>
       )}
