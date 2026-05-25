@@ -109,7 +109,14 @@ export function SuggestionsPanel({
               {suggestionsWarning}
             </p>
           )}
-          <div className="flex flex-wrap gap-1.5">
+          {/* qi3: cap the chip grid so binder-page lots with 40+ suggestions
+              don't push BulkValuationPanel + additions + Save off-screen.
+              max-h scrolls internally; everything below the panel stays
+              reachable. */}
+          <div
+            className="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto pr-1"
+            data-testid="suggestion-chips"
+          >
             {suggestions.map((s) => (
               <SuggestionChip
                 key={`${s.name}-${s.sourceImagePosition ?? "?"}`}
