@@ -20,6 +20,7 @@ A Pokémon card deal-finder. Scores live eBay listings against TCGPlayer / Cardm
 | 💵 Sold-comps panel (eBay completed listings via ScrapingBee) | [l6x](docs/features/l6x-sold-comps.md) |
 | 📚 Bulk-rarity bucketing for binder lots | [yam](docs/features/yam-bulk-rarity-bucketing.md) |
 | 🔖 Saved Lots — pin eBay lot listings to a Saved tab | [u8y](docs/features/u8y-saved-lots.md) |
+| 🔍 In-app lightbox for lot listing photos | [n5f](docs/features/n5f-image-lightbox.md) |
 
 ## Quick start
 

@@ -24,6 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/lib/utils";
 import type { AddedLotCard, BulkCounts, BulkValuation, CatalogCard, Lot, LotSuggestion } from "@/types";
 import { BulkValuationPanel } from "./BulkValuationPanel";
+import { ImageLightbox } from "./ImageLightbox";
 import { LotValuationPanel } from "./LotValuationPanel";
 
 interface LotAnalyzerModalProps {
@@ -100,6 +101,8 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
   const [suggestionsWarning, setSuggestionsWarning] = useState<string | null>(null);
   const [bulkCounts, setBulkCounts] = useState<BulkCounts | null>(null);
   const [bulkValuation, setBulkValuation] = useState<BulkValuation | null>(null);
+  // n5f — in-app lightbox for the listing photo grid. null = closed.
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   // True when the last call was an all-failed 503 — distinguishes "AI is down,
   // retry" from "vision returned legitimately empty results" in the panel.
   const [aiTemporarilyDown, setAiTemporarilyDown] = useState(false);
@@ -162,6 +165,7 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
     setAcceptedSuggestionKeys(new Set());
     setPickedCardIdByKey({});
     setOpenPickerKey(null);
+    setLightboxSrc(null);
   }, [lot?.ebayItemId, lot]);
 
   // When server-cached OCR data lands (or the lot changes), hydrate the
@@ -382,12 +386,12 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
               ) : (
                 <div className="grid grid-cols-2 gap-2">
                   {images.map((img) => (
-                    <a
+                    <button
                       key={img.position}
-                      href={img.imageUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="block rounded-lg overflow-hidden border border-slate-800 hover:border-slate-600 transition"
+                      type="button"
+                      onClick={() => setLightboxSrc(img.imageUrl)}
+                      aria-label={`Open listing photo ${img.position + 1} full-size`}
+                      className="block w-full rounded-lg overflow-hidden border border-slate-800 hover:border-slate-600 transition cursor-zoom-in focus:outline-none focus:ring-2 focus:ring-[#F5C518]"
                     >
                       <img
                         src={img.imageUrl}
@@ -395,7 +399,7 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
                         className="w-full aspect-square object-cover bg-slate-900"
                         loading="lazy"
                       />
-                    </a>
+                    </button>
                   ))}
                 </div>
               )}
@@ -604,6 +608,13 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
           </div>
         </div>
       </div>
+      {/* n5f — listing-photo lightbox. Mounts via its own portal so
+          z-index sits cleanly above the modal. */}
+      <ImageLightbox
+        src={lightboxSrc}
+        alt={lot.title}
+        onClose={() => setLightboxSrc(null)}
+      />
     </>
   );
 
