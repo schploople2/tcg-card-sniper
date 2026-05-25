@@ -41,6 +41,25 @@ describe("ImageLightbox", () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it("closes when the click hits the empty backdrop area (not the image)", () => {
+    const onClose = vi.fn();
+    render(
+      <ImageLightbox src="https://i.example/x.jpg" onClose={onClose} />
+    );
+    // Click on the Content wrapper itself (target === currentTarget)
+    fireEvent.click(screen.getByTestId("image-lightbox"));
+    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("does NOT close when the click is on the image itself", () => {
+    const onClose = vi.fn();
+    render(
+      <ImageLightbox src="https://i.example/x.jpg" onClose={onClose} />
+    );
+    fireEvent.click(screen.getByTestId("image-lightbox-img"));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("defaults alt to '' when not supplied (decorative image)", () => {
     render(<ImageLightbox src="https://i.example/x.jpg" onClose={vi.fn()} />);
     const img = screen.getByTestId("image-lightbox-img") as HTMLImageElement;

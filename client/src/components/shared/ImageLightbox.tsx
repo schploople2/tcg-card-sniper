@@ -44,6 +44,12 @@ export function ImageLightbox({
           aria-describedby={undefined}
           className="fixed inset-0 z-[60] flex items-center justify-center p-6 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 focus:outline-none"
           data-testid="image-lightbox"
+          // Tap/click anywhere outside the image (i.e. on the empty
+          // padded area of Content itself) closes the lightbox.
+          // Image clicks stop propagation below so they don't fire this.
+          onClick={(e) => {
+            if (e.target === e.currentTarget) onClose();
+          }}
         >
           <DialogPrimitive.Title className="sr-only">
             Photo preview
@@ -52,6 +58,7 @@ export function ImageLightbox({
             <img
               src={src}
               alt={alt ?? ""}
+              onClick={(e) => e.stopPropagation()}
               className="max-h-[90vh] max-w-[90vw] object-contain rounded-sm shadow-2xl"
               data-testid="image-lightbox-img"
             />
