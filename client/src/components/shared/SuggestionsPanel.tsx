@@ -25,13 +25,16 @@ export interface SuggestionsPanelProps {
   acceptedSuggestionKeys: Set<string>;
   pickedCardIdByKey: Record<string, string>;
   openPickerKey: string | null;
-  suggestionKeyFn: (s: LotSuggestion) => string;
+  /** Caller computes per-chip key from (suggestion, index). Index must be
+   *  the render-list index so duplicate (name, position) pairs still get
+   *  unique keys. */
+  suggestionKeyFn: (s: LotSuggestion, index: number) => string;
 
   onRequestSuggestions: () => void;
   onAcceptAllHighConfidence: () => void;
-  onAcceptSuggestion: (s: LotSuggestion) => void;
+  onAcceptSuggestion: (s: LotSuggestion, key: string) => void;
   onPickerOpenChange: (key: string, open: boolean) => void;
-  onPickPrinting: (s: LotSuggestion, cardId: string) => void;
+  onPickPrinting: (s: LotSuggestion, cardId: string, key: string) => void;
   onSearchFromSuggestion: (name: string) => void;
 }
 
@@ -121,8 +124,8 @@ export function SuggestionsPanel({
             className="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto pr-1"
             data-testid="suggestion-chips"
           >
-            {suggestions.map((s) => {
-              const k = suggestionKeyFn(s);
+            {suggestions.map((s, i) => {
+              const k = suggestionKeyFn(s, i);
               return (
                 <SuggestionChip
                   key={k}
@@ -130,9 +133,9 @@ export function SuggestionsPanel({
                   accepted={acceptedSuggestionKeys.has(k)}
                   currentCardId={pickedCardIdByKey[k]}
                   pickerOpen={openPickerKey === k}
-                  onAccept={() => onAcceptSuggestion(s)}
+                  onAccept={() => onAcceptSuggestion(s, k)}
                   onPickerOpenChange={(open) => onPickerOpenChange(k, open)}
-                  onPick={(cardId) => onPickPrinting(s, cardId)}
+                  onPick={(cardId) => onPickPrinting(s, cardId, k)}
                   onSearch={onSearchFromSuggestion}
                 />
               );

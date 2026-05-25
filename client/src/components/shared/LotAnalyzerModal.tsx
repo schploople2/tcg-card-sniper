@@ -30,16 +30,20 @@ interface LotAnalyzerModalProps {
 
 /**
  * ytf: Stable per-chip identity. Vision can return the same `name` twice
- * (a card visible in two photos surfaces as two distinct chips with
- * different sourceImagePosition). Keying per-chip state by name alone
- * collides — accepting one chip would mark both accepted, and Radix's
- * picker would close immediately on the second click because state
- * resolved to the first chip's DOM anchor.
+ * (a card visible in two photos surfaces as two distinct chips). Keying
+ * per-chip state by name alone collides — accepting one chip would mark
+ * both accepted, and Radix's picker would close immediately on the
+ * second click because state resolved to the first chip's DOM anchor.
  *
- * Shape mirrors the React `key=` used in SuggestionsPanel.
+ * The chip's INDEX in the rendered list is the only thing guaranteed
+ * unique even when the server hands back two suggestions with the same
+ * (name, sourceImagePosition) pair — which happens when the post-OCR
+ * merge produces duplicates and the route maps both back to the same
+ * `mergedByName` entry. We include name + position for human-readable
+ * debugging and the index as the actual uniqueness guard.
  */
-function suggestionKey(s: LotSuggestion): string {
-  return `${s.name.toLowerCase()}-${s.sourceImagePosition ?? "?"}`;
+function suggestionKey(s: LotSuggestion, index: number): string {
+  return `${s.name.toLowerCase()}-${s.sourceImagePosition ?? "?"}-${index}`;
 }
 
 /**
@@ -216,9 +220,9 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
    * natural order wins; the user can refine via the catalog search). We
    * mark the suggestion accepted by name so the chip flips to "added".
    */
-  function handleAcceptSuggestion(s: LotSuggestion) {
+  function handleAcceptSuggestion(s: LotSuggestion, key: string) {
     if (s.candidates.length === 0) return;
-    handlePickPrinting(s, s.candidates[0].cardId);
+    handlePickPrinting(s, s.candidates[0].cardId, key);
   }
 
   /**
@@ -227,8 +231,7 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
    * old cardId is removed from `addedCards` first so we don't leave two
    * printings of the "same" card stacked in the additions list.
    */
-  function handlePickPrinting(s: LotSuggestion, cardId: string) {
-    const key = suggestionKey(s);
+  function handlePickPrinting(s: LotSuggestion, cardId: string, key: string) {
     const previousCardId = pickedCardIdByKey[key];
     setAddedCards((prev) => {
       // Remove the old printing if this is a "change printing" action.
@@ -270,11 +273,12 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
 
   function handleAcceptAllHighConfidence() {
     if (!suggestions) return;
-    for (const s of suggestions) {
-      if (s.confidence >= 0.8 && !acceptedSuggestionKeys.has(suggestionKey(s))) {
-        handleAcceptSuggestion(s);
+    suggestions.forEach((s, i) => {
+      const key = suggestionKey(s, i);
+      if (s.confidence >= 0.8 && !acceptedSuggestionKeys.has(key)) {
+        handleAcceptSuggestion(s, key);
       }
-    }
+    });
   }
 
   function setQuantity(cardId: string, delta: number) {
@@ -426,7 +430,7 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
                 onPickerOpenChange={(key, open) =>
                   setOpenPickerKey(open ? key : null)
                 }
-                onPickPrinting={handlePickPrinting}
+                onPickPrinting={(s, cardId, key) => handlePickPrinting(s, cardId, key)}
                 onSearchFromSuggestion={handleSearchFromSuggestion}
               />
 

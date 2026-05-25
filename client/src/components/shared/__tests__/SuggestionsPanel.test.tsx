@@ -29,7 +29,7 @@ function makeProps(over: Partial<SuggestionsPanelProps> = {}): SuggestionsPanelP
     acceptedSuggestionKeys: new Set<string>(),
     pickedCardIdByKey: {},
     openPickerKey: null,
-    suggestionKeyFn: (s) => `${s.name.toLowerCase()}-${s.sourceImagePosition ?? "?"}`,
+    suggestionKeyFn: (s, i) => `${s.name.toLowerCase()}-${s.sourceImagePosition ?? "?"}-${i}`,
     onRequestSuggestions: vi.fn(),
     onAcceptAllHighConfidence: vi.fn(),
     onAcceptSuggestion: vi.fn(),
@@ -182,34 +182,73 @@ describe("SuggestionsPanel — empty + partial-failed states", () => {
   });
 });
 
-describe("SuggestionsPanel — duplicate-name chips stay independent (ytf)", () => {
-  it("keys per-chip state by (name, sourceImagePosition) so two same-name chips don't share open/accepted state", () => {
+describe("SuggestionsPanel — duplicate chips stay independent (ytf)", () => {
+  it("uses the chip's array INDEX in the key so even two identical (name, position) chips get distinct keys", () => {
     const onPickerOpenChange = vi.fn();
-    const dup1 = suggestion({
-      name: "mega latias ex",
-      sourceImagePosition: 0,
-    });
-    const dup2 = suggestion({
-      name: "mega latias ex",
-      sourceImagePosition: 3,
-    });
+    // Worst case: two chips with the SAME name AND same sourceImagePosition.
+    // Pre-fix this collapsed both to one key; post-fix the index disambiguates.
+    const a = suggestion({ name: "mega latias ex", sourceImagePosition: 0 });
+    const b = suggestion({ name: "mega latias ex", sourceImagePosition: 0 });
     render(
       <SuggestionsPanel
         {...makeProps({
-          suggestions: [dup1, dup2],
-          // Mark only the FIRST chip's key as accepted — the second chip
-          // must NOT inherit that state (the bug pre-ytf).
-          acceptedSuggestionKeys: new Set(["mega latias ex-0"]),
-          // Likewise only the first chip's open-state is set.
-          openPickerKey: "mega latias ex-0",
+          suggestions: [a, b],
+          openPickerKey: null,
           onPickerOpenChange,
         })}
       />
     );
+    const dots = screen.getAllByRole("button", {
+      name: /Pick a different printing|Change printing/i,
+    });
+    expect(dots).toHaveLength(2);
+    fireEvent.click(dots[1]);
+    const [key, open] = onPickerOpenChange.mock.calls[0];
+    expect(open).toBe(true);
+    // Second chip is at index 1
+    expect(key).toBe("mega latias ex-0-1");
+  });
 
-    // Both chips render with distinct DOM nodes (the dedupe key from
-    // suggestionKeyFn is (name, sourceImagePosition)).
-    expect(screen.getAllByText(/mega latias ex/i).length).toBeGreaterThanOrEqual(2);
+  it("only the chip whose key is in acceptedSuggestionKeys renders the 'Change printing' state", () => {
+    render(
+      <SuggestionsPanel
+        {...makeProps({
+          suggestions: [
+            suggestion({ name: "mega latias ex", sourceImagePosition: 0 }),
+            suggestion({ name: "mega latias ex", sourceImagePosition: 0 }),
+          ],
+          // Only chip-at-index-0's key
+          acceptedSuggestionKeys: new Set(["mega latias ex-0-0"]),
+        })}
+      />
+    );
+    const changeButtons = screen.getAllByRole("button", {
+      name: /Change printing/i,
+    });
+    const pickButtons = screen.getAllByRole("button", {
+      name: /Pick a different printing/i,
+    });
+    expect(changeButtons).toHaveLength(1);
+    expect(pickButtons).toHaveLength(1);
+  });
+
+  it("only opens the picker for the chip whose key matches openPickerKey", () => {
+    render(
+      <SuggestionsPanel
+        {...makeProps({
+          suggestions: [
+            suggestion({ name: "mega latias ex", sourceImagePosition: 0 }),
+            suggestion({ name: "mega latias ex", sourceImagePosition: 0 }),
+          ],
+          // Only the SECOND chip's key
+          openPickerKey: "mega latias ex-0-1",
+        })}
+      />
+    );
+    // Radix renders the open Popover.Content with role=dialog. We only
+    // expect ONE open popover even though both chips share name+position.
+    const popovers = screen.getAllByRole("dialog");
+    expect(popovers).toHaveLength(1);
   });
 });
 
