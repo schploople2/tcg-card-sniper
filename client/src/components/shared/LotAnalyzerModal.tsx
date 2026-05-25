@@ -196,11 +196,11 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
     });
   }
 
-  function handleRequestSuggestions() {
+  function handleRequestSuggestions(opts: { force?: boolean } = {}) {
     if (!lot) return;
     setAiTemporarilyDown(false);
     setSuggestionsWarning(null);
-    suggestionsMutation.mutate(lot.ebayItemId, {
+    suggestionsMutation.mutate({ ebayItemId: lot.ebayItemId, force: opts.force }, {
       onSuccess: (data) => {
         setSuggestions(data.suggestions);
         // A3 — vision now also returns bulk-rarity counts for unidentified
@@ -436,11 +436,20 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
                 suggestionsWarning={suggestionsWarning}
                 isPending={suggestionsMutation.isPending}
                 imagesCount={images.length}
+                // Bulk panel is hidden when legacy cache lacks bulk counts.
+                // Surface a refresh affordance in that case so the user can
+                // opt in to a fresh OCR that populates bulk.
+                needsBulkRefresh={
+                  suggestions !== null &&
+                  suggestions.length > 0 &&
+                  (bulkValuation === null || bulkValuation.totalCards === 0)
+                }
+                onRefreshSuggestions={() => handleRequestSuggestions({ force: true })}
                 acceptedSuggestionKeys={acceptedSuggestionKeys}
                 pickedCardIdByKey={pickedCardIdByKey}
                 openPickerKey={openPickerKey}
                 suggestionKeyFn={suggestionKey}
-                onRequestSuggestions={handleRequestSuggestions}
+                onRequestSuggestions={() => handleRequestSuggestions()}
                 onAcceptAllHighConfidence={handleAcceptAllHighConfidence}
                 onAcceptSuggestion={handleAcceptSuggestion}
                 onPickerOpenChange={(key, open) =>

@@ -112,9 +112,13 @@ export function useSaveAnnotation() {
 export function useLotSuggestions() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (ebayItemId: string): Promise<LotSuggestionsResponse> => {
+    mutationFn: async (
+      args: string | { ebayItemId: string; force?: boolean }
+    ): Promise<LotSuggestionsResponse> => {
+      const { ebayItemId, force } =
+        typeof args === "string" ? { ebayItemId: args, force: false } : args;
       const { data } = await api.post<LotSuggestionsResponse>(
-        `/api/lots/${ebayItemId}/ocr-suggestions`
+        `/api/lots/${ebayItemId}/ocr-suggestions${force ? "?force=true" : ""}`
       );
       return data;
     },
@@ -124,6 +128,12 @@ export function useLotSuggestions() {
         ["lots", "suggestions", data.ebayItemId],
         data
       );
+      // A POST may have written fresh OCR (or force=true cleared cache
+      // and re-OCR'd). Invalidate the cached-GET query so the next
+      // mount of the modal re-reads, picking up new bulk data etc.
+      qc.invalidateQueries({
+        queryKey: ["lots", "cached-suggestions", data.ebayItemId],
+      });
     },
     onError: (err: {
       response?: {

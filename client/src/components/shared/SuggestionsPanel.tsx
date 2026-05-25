@@ -30,6 +30,14 @@ export interface SuggestionsPanelProps {
    *  unique keys. */
   suggestionKeyFn: (s: LotSuggestion, index: number) => string;
 
+  /** True when the lot has cached suggestions but no bulk data (legacy
+   *  cache from before A3 shipped). Surfaces a small "Refresh AI"
+   *  affordance so the user can opt in to a fresh OCR. */
+  needsBulkRefresh?: boolean;
+  /** Fires a force-refresh of the OCR cache for this lot. Called when
+   *  user clicks the refresh link offered alongside needsBulkRefresh. */
+  onRefreshSuggestions?: () => void;
+
   onRequestSuggestions: () => void;
   onAcceptAllHighConfidence: () => void;
   onAcceptSuggestion: (s: LotSuggestion, key: string) => void;
@@ -44,6 +52,8 @@ export function SuggestionsPanel({
   suggestionsWarning,
   isPending,
   imagesCount,
+  needsBulkRefresh = false,
+  onRefreshSuggestions,
   acceptedSuggestionKeys,
   pickedCardIdByKey,
   openPickerKey,
@@ -124,6 +134,22 @@ export function SuggestionsPanel({
             className="flex flex-wrap gap-1.5 max-h-64 overflow-y-auto pr-1"
             data-testid="suggestion-chips"
           >
+            {needsBulkRefresh && onRefreshSuggestions && (
+              <p
+                className="text-[11px] text-slate-500"
+                data-testid="needs-bulk-refresh"
+              >
+                Bulk estimate not available for this analysis.{" "}
+                <button
+                  type="button"
+                  onClick={onRefreshSuggestions}
+                  disabled={isPending}
+                  className="text-[#F5C518] hover:underline disabled:opacity-50"
+                >
+                  Refresh AI {isPending ? "(running…)" : "to update"}
+                </button>
+              </p>
+            )}
             {suggestions.map((s, i) => {
               const k = suggestionKeyFn(s, i);
               return (

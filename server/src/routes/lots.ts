@@ -452,6 +452,18 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
         .json({ error: "Vision suggestions are not enabled on this server." });
     }
 
+    // ?force=true → wipe this lot's OCR cache before running so legacy
+    // entries (written before the A3 bulk feature shipped) get re-OCR'd
+    // and re-populated with bulk-rarity counts. Costs Anthropic credits
+    // per image, so the client only fires it when the user explicitly
+    // clicks "Refresh AI analysis".
+    if (req.query.force === "true") {
+      await prisma.lotImage.updateMany({
+        where: { ebayItemId: req.params.ebayItemId },
+        data: { ocrText: null },
+      });
+    }
+
     // Soft daily cap on fresh-API spend per user. Cache hits stay free, so a
     // capped user can still replay any lot they've already analysed today —
     // but the upstream check is conservative (we don't know yet which images
