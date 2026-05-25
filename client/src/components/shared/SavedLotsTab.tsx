@@ -119,9 +119,14 @@ function SavedLotRow({
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <p className="text-sm text-slate-200 line-clamp-2 leading-snug">
+          <button
+            type="button"
+            onClick={onAnalyze}
+            className="block text-left text-sm text-slate-200 line-clamp-2 leading-snug hover:text-white hover:underline decoration-slate-600 underline-offset-2 focus:outline-none focus:underline"
+            title="Open the lot analyzer"
+          >
             {row.title}
-          </p>
+          </button>
           <p className="text-[11px] text-slate-500 mt-1">
             Saved {savedAt.toLocaleDateString()} ·{" "}
             <span className="text-[#F5C518] font-medium">
