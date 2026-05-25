@@ -6,6 +6,8 @@ import { requireAuth } from "../middleware/auth.js";
 import { AppError } from "../middleware/errorHandler.js";
 import { fetchCardById } from "../services/pokemontcg.js";
 import { PRICE_CACHE_TTL_MS } from "../config.js";
+import { getSoldComps, summariseSoldComps } from "../services/soldComps.js";
+import { variantToEbayKeyword } from "../services/priceVariant.js";
 
 export const cardsRouter = Router();
 cardsRouter.use(requireAuth);
@@ -156,6 +158,44 @@ cardsRouter.get("/:id", async (req, res, next) => {
     });
     if (!card) throw new AppError(404, "Card not found");
     res.json(card);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/cards/:id/sold-comps  (C1)
+ *
+ * Returns up to 90 days of sold-listing comps for a watched card. The
+ * eBay sold-listings page is the underlying data source; results are
+ * cached in the SoldComp table for 24h per query to keep traffic light.
+ *
+ * Response includes both the raw rows and a summary {count, median,
+ * low, high, mostRecentAt} so the UI can render a headline without
+ * client-side aggregation.
+ */
+cardsRouter.get("/:id/sold-comps", async (req, res, next) => {
+  try {
+    const card = await prisma.watchedCard.findFirst({
+      where: { id: req.params.id, userId: req.user!.userId },
+    });
+    if (!card) throw new AppError(404, "Card not found");
+
+    // Mirror the keyword shape we use for active-listings eBay search so
+    // sold comps and active listings are like-for-like.
+    const variantKw = variantToEbayKeyword(card.variant);
+    const query = [
+      card.cardName,
+      card.cardNumber,
+      variantKw && variantKw.trim(),
+    ]
+      .filter((s): s is string => !!s && s.trim().length > 0)
+      .join(" ")
+      .trim();
+
+    const { rows, fromCache } = await getSoldComps(query, { cardId: card.id });
+    const summary = summariseSoldComps(rows);
+    res.json({ query, summary, rows, fromCache });
   } catch (err) {
     next(err);
   }

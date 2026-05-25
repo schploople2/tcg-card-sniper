@@ -107,6 +107,48 @@ model User {
 // for fan-out queries.
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SoldComp — C1: true sold-comparable listings scraped from eBay.
+// One row per individual sold/completed listing. Used to surface "recently
+// sold" panels and (future) replace tcgplayer market for deal scoring when
+// ≥N comps exist. cardId is nullable so we can also cache ad-hoc query-based
+// scrapes that aren't tied to a watched card.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model SoldComp {
+  id              String    @id @default(cuid())
+  /// The card this comp is for. Nullable for query-keyed (cardless) caches.
+  cardId          String?
+  /// The keyword query that produced this scrape — lets us look up
+  /// "did we already fetch comps for this exact query within the TTL?"
+  /// without joining through cardId.
+  query           String
+  ebayItemId      String
+  title           String
+  /// Sold price as displayed on the page (the buyer's hammer, not incl shipping)
+  soldPrice       Decimal   @db.Decimal(10, 2)
+  shippingCost    Decimal?  @db.Decimal(10, 2)
+  totalPrice      Decimal   @db.Decimal(10, 2)
+  /// String key matching the rest of the codebase ("NM"/"LP"/"MP"/"HP"/"DMG"/"GRADED"/null)
+  conditionGrade  String?
+  /// True when the listing carried the "Best Offer accepted" badge — the
+  /// sold price is then the offer, not the asking price. Distinct signal.
+  acceptedOffer   Boolean   @default(false)
+  soldAt          DateTime
+  imageUrl        String?
+  ebayUrl         String
+  fetchedAt       DateTime  @default(now())
+
+  card Card? @relation(fields: [cardId], references: [id], onDelete: SetNull)
+
+  /// Same listing can in theory be scraped under multiple queries; we
+  /// dedupe by (query, ebayItemId) so re-fetching the same query doesn't
+  /// duplicate rows.
+  @@unique([query, ebayItemId])
+  @@index([cardId, soldAt])
+  @@index([query, fetchedAt])
+}
+
 model PushSubscription {
   id        String   @id @default(cuid())
   userId    String
@@ -594,6 +636,8 @@ model Card {
 
   /// Indexed by sync time for "what's been refreshed lately" diagnostics.
   syncedAt DateTime @default(now())
+
+  soldComps SoldComp[]
 
   @@index([setId])
   @@index([number])

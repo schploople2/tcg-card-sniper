@@ -82,6 +82,17 @@ const envSchema = z.object({
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),
   VAPID_SUBJECT: z.string().default("mailto:schploople@gmail.com"),
+
+  /**
+   * C1 — ScrapingBee API key for routing eBay sold-listings page fetches
+   * through their residential proxy. eBay actively blocks datacenter IPs
+   * for /sch/i.html, so the direct path 403's on Railway. When this key
+   * is absent the sold-comps service falls back to the deprecated eBay
+   * Finding API (which is rate-limited to near-zero for unapproved apps
+   * and may never succeed). With the key set, each sold-comp scrape
+   * costs 5 credits on ScrapingBee's plan.
+   */
+  SCRAPINGBEE_API_KEY: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);
