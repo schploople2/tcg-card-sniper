@@ -334,7 +334,10 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
             </div>
 
             {/* Right: parsed + analysis */}
-            <div className="flex-1 lg:w-1/2 flex flex-col min-h-0">
+            {/* qi3: right pane scrolls as a single column so Bulk Estimate,
+                Your additions, Notes, Catalog search, and Save stay
+                reachable on viewports too short to fit them all at once. */}
+            <div className="flex-1 lg:w-1/2 flex flex-col min-h-0 overflow-y-auto">
               {/* Auto-parsed (read-only summary) */}
               <div className="border-b border-slate-800 p-4">
                 <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">
@@ -440,7 +443,7 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
               </div>
 
               {/* Catalog search */}
-              <div className="flex-1 flex flex-col min-h-0 p-4">
+              <div className="flex flex-col p-4">
                 <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">
                   Add a card from the catalog
                 </p>
@@ -455,7 +458,7 @@ export function LotAnalyzerModal({ lot, onClose }: LotAnalyzerModalProps) {
                     className="pl-8 bg-slate-900 border-slate-700 text-slate-200 placeholder:text-slate-500"
                   />
                 </div>
-                <div className="flex-1 overflow-y-auto -mx-1 px-1">
+                <div className="max-h-72 overflow-y-auto -mx-1 px-1">
                   {catalog.isFetching ? (
                     <div className="space-y-1.5">
                       {[...Array(3)].map((_, i) => (
