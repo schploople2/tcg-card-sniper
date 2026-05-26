@@ -152,3 +152,40 @@ This is the supersession + pick-printing flow working end-to-end against real pr
 - Pick-printing feature: shipped, verified, tested.
 - All 6 Phase-8 beads closed. 18 issues total in the project; 11 closed; 0 in-progress; 0 blocked.
 - Session ready to hand off or pivot to Phase 1 (live verification baseline), Phase 5 (telemetry — actually mostly done in the prior session), or Phase 6 (closeout + SESSION_RECAP refresh).
+
+---
+
+## Session 2026-05-26 — OCR epic close-out (mwn, 7b7, ad4)
+
+Continuation of an earlier-in-the-day session that closed 7 stale beads (qi3, ytf, 8ni, bmt, n5f, yam, ex4) — most were features shipped in prior sessions but never marked closed in `bd`. Code already on main; just paperwork.
+
+**Phase 1 baseline (`mwn`)** — first live measurement of the OCR pipeline against prod after Phases 2–5 shipped. Driven via curl against `server-production-ad17.up.railway.app` with a JWT for schploople@gmail.com. Test lot: `v1|358577296238|0` (12 photos, Mega-EX collection).
+
+- Cold run: 32.7s for 6 images (~5.4s/image), `cacheStatus=fresh`, `imagesProcessed=6` (cap-bound), `imagesFailed=0`, `providerStatus=ok`, 20 surfaced suggestions (37 raw → deduped).
+- Warm run: 0.68s cached, identical suggestion set (deep diff).
+- Server log: clean `[lotVisionAi]` summary, no `image position=N failed` or `recordOcrCall failed` lines.
+- Accuracy: **19/20 = 95%** by hands-on compare. One miss: `omastar` should be `omastar v` (lost the "V" suffix — V cards $20+ vs base ~$1).
+- Daily-cap telemetry working: `usage.callsMade`, `cap`, `remaining` all reported as designed.
+
+Two new gaps logged in findings.md and filed as beads:
+- **G6 → `bd-7b7`** — 6-image cap silently dropped photos 6–11 on the 12-photo lot.
+- **G7 → `bd-bo3`** — `dedupeSuggestions` let 3 post-merge duplicates leak through (mega manectric / gardevoir / absol).
+
+**Cap lift (`7b7`)** — bumped `OCR_MAX_IMAGES_PER_LOT` default from 6 → 12 in `server/src/config.ts`; matched Railway env var via `railway variables --set`. Cost goes $0.018/run → $0.036/run worst case; per-user daily cap (100 images) still bounds total spend. Docs refreshed: README, DEPLOYMENT, 0hj-sep, findings.md.
+
+Re-verified against the same lot post-deploy:
+- `imagesProcessed: 12` (was 6) — cap fully lifted
+- 69.6s wall-clock (~5.8s/image, consistent), 0 failures
+- **28 surfaced suggestions** (was 20) — +8 net new cards visible only in photos 6–11
+
+**Phase 6 wrap-up (`ad4`)** — refreshed SESSION_RECAP.md ("Since 2026-05-22" feature waves section, pruned the long-obsolete "Open question — user's next ask" lot-annotation block, bumped tests count 163 → 304+). This entry to progress.md.
+
+**Discoveries**
+- `bd close` writes the close to dolt but the next command re-imports from `.beads/issues.jsonl` and undoes it. Fix: pipe `bd close <id> && bd export > .beads/issues.jsonl` in the same shell call. Already documented in earlier sessions but bit again here.
+- Railway CLI `railway status --json` doesn't accept `--service`; nested JSON has deployments scattered across the tree. `jq -r '.. | objects | select(.status? and .createdAt?)'` is the working pattern.
+- Server prod URL is `server-production-ad17.up.railway.app`, not the client URL. Found via `docs/DEPLOYMENT.md`.
+
+**Status**
+- Epic `66f` (Lot OCR detection — productionize beyond MVP): all 6 phases shipped + closed. Epic itself ready to close.
+- Stack now at 304 server tests, 65+ client tests, all green. ~50 beads total in project; long tail of legacy scaffold beads (`czk`, `csb`, `610`) likely stale — audit pass next session.
+- Top of `bd ready` after this session: `bd-bo3` (dedupe leak, P3), `u8y` (Saved Lots — likely already shipped, audit), `czk/csb/610` (audit + close).
