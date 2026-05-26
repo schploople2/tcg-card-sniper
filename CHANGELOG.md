@@ -3,7 +3,12 @@
 All notable user-visible changes to TCG Card Sniper. Generated from
 conventional commits — run `pnpm changelog` to refresh from git.
 
-<!-- changelog-marker: 5d2eece1be1880ff84a44367af7d6bc946e0fac6 -->
+<!-- changelog-marker: 8f2c64c6eab39982fadbae7be63c326cf1ac5e66 -->
+
+## 2026-05-25
+
+### Added
+- **comps:** C2 — graded card price tracks (PSA 9/10, BGS 9.5) (bmt)
 
 ## 2026-05-25
 
