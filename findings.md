@@ -12,6 +12,45 @@ Research notes for continued development of the Pc vision-AI pipeline.
 **Client**
 - `LotAnalyzerModal.tsx` — left pane: image gallery from `useLotImages`. Right pane: auto-parsed cards + user-added cards + catalog search picker + "Suggest cards from photos" button (calls `/ocr-suggestions`, accepts chips into addedCards). Notes field + save via `useSaveAnnotation` → `PUT /annotation`.
 
+## Phase 1 baseline 2026-05-26
+
+First live measurement of the pipeline after Phases 2–5 shipped. Driven via curl against prod (`server-production-ad17.up.railway.app`) using a JWT for schploople@gmail.com. Lot picked from the first ≥4-photo result in `/api/lots/search?q=pokemon+lot`. User-supplied test lot.
+
+**Test lot:** `v1|358577296238|0` — 12 photos, Mega-EX collection — https://www.ebay.com/itm/358577296238
+
+**Cold run (`?force=true`)**
+- Wall-clock: **32.7s** for 6 images (≈5.4s/image)
+- `cacheStatus=fresh`, `imagesProcessed=6` (cap-bound; lot has 12), `imagesFailed=0`, `providerStatus=ok`
+- Raw model: 37 suggestions → deduped/merged to 20 surfaced
+- `bulkCounts={0,0,0,0}` — model correctly bucketed nothing as bulk (lot is all single Mega-EX cards)
+- `usage.imagesProcessed=12, callsMade=3, remaining=88/100` (cumulative across baseline session, two lots)
+
+**Warm run (no force)**
+- Wall-clock: **0.68s** (≈48× speedup)
+- `cacheStatus=cached`, `imagesProcessed=0`, identical suggestion set (deep diff confirmed)
+
+**Railway server log (one line per cold run, no failures):**
+```
+[lotVisionAi] ebayItemId=v1|358577296238|0 6 images → 37 suggestions (6 fresh / 0 cached / 0 failed, status=ok)
+```
+No `[lotVisionAi] image position=N failed:` or `recordOcrCall failed:` lines during the run.
+
+**Accuracy (hands-on compare against the 12-photo listing):** 19/20 correct = **95%**. One soft miss: `omastar` (qty=1, pos=0, conf=0.9) — the actual card is *Omastar V*. Losing the "V" suffix matters: V cards are $20+ vs base Omastar ~$1, so this lot's auto-valuation under-prices by ~$19 on that line. The remaining 19 names + Mega-EX prefixes were all correct.
+
+**New gaps observed (extending G1–G5)**
+- **G6 — 6-image cap silently drops half the lot's photos.** `OCR_MAX_IMAGES_PER_LOT=6` is a server-wide env knob, set to keep cost at ~$0.018/run. On 12-photo listings the user gets coverage of photos 0–5 only and has no signal that 6 more were skipped. Worth either (a) raising the cap, (b) making it user-tunable, or (c) at minimum surfacing "processed 6 of 12 photos" in the UI. Filed as bead.
+- **G7 — Post-dedupe duplicates leak through.** Three suggestions appeared **twice** with identical `(name, sourceImagePosition, quantity)` tuples: `mega manectric ex` (pos=1, qty=2), `mega gardevoir ex` (pos=3, qty=2), `mega absol ex` (pos=3, qty=2). `dedupeSuggestions` in `lotVisionAi.ts` doesn't catch the merge case where the same (name, pos) is emitted by two separate model passes over the same image. Filed as bead.
+- **G8 — `sourceImagePosition: null` slips through validation.** `mega mawile ex` came back with `pos=null`. The schema in `lotVisionAi.ts` should require non-null position. Minor — flagging only, no bead yet.
+- **G1 hint-attachment** (already filed in Phase 2 work) is also visible here in microcosm: the Omastar miss is exactly the kind of case where a `cardNumber` hint from the card text in the photo would have pinned the right printing.
+
+**Sanity-checked previous gaps**
+- G2 (test coverage): closed by Phase 3 (1hu).
+- G3 (OCR doesn't feed feed): closed by Phase 4 (0vd) — `lotUpdate` field is in the response.
+- G4 (no spend telemetry/quota): closed by Phase 5 (3om) — `usage` field reports `callsMade`, `cap`, `remaining`; per-user daily cap enforced server-side.
+- G5 (cache-key by position not URL hash): still a known limitation, no occurrences in this baseline.
+
+**Conclusion.** Pipeline is production-stable. Latency (~5s/image), cache semantics, telemetry, and provider health are all behaving exactly as designed. The two new gaps (G6 image cap, G7 dedupe leak) are real product issues but low-severity — neither blocks anything, both have clean fix paths. Accuracy at 95% on a high-quality 12-photo Mega-EX lot is the headline number to beat in any future tuning round.
+
 ## Gaps identified
 
 ### G1 — Hints surface but don't narrow candidates
