@@ -550,7 +550,7 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
     // the catalog (too-short names or unknown names), so parsedCards may be
     // shorter than `merged` and their indices won't line up.
     const mergedByName = new Map(merged.map((m) => [m.name.toLowerCase(), m]));
-    const suggestions = valuation.parsedCards.map((parsed) => {
+    const rawSuggestions = valuation.parsedCards.map((parsed) => {
       const m = mergedByName.get(parsed.name.toLowerCase());
       return {
         name: parsed.name,
@@ -562,6 +562,26 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
         sourceImagePosition: m?.sourceImagePosition ?? null,
       };
     });
+
+    // bo3 — belt-and-braces final pass. Phase 1 baseline observed 6 cases
+    // of identical (name, sourceImagePosition) tuples leaking past
+    // dedupeSuggestions (probably via casing / trie-canonical renaming
+    // turning two distinct merged entries into the same parsed.name).
+    // Collapse by the canonical key the *client* sees so the UI never
+    // renders duplicate chips. Keep the higher confidence; max quantity.
+    const finalByKey = new Map<string, typeof rawSuggestions[number]>();
+    for (const s of rawSuggestions) {
+      const key = `${s.name.trim().toLowerCase()}::${s.sourceImagePosition ?? "?"}`;
+      const existing = finalByKey.get(key);
+      if (!existing) {
+        finalByKey.set(key, s);
+      } else if (s.confidence > existing.confidence) {
+        finalByKey.set(key, { ...s, quantity: Math.max(existing.quantity, s.quantity) });
+      } else {
+        existing.quantity = Math.max(existing.quantity, s.quantity);
+      }
+    }
+    const suggestions = [...finalByKey.values()];
 
     // Persist vision findings back to the Lot row so the search feed
     // reflects what's actually in the photos, not just what was in the title.

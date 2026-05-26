@@ -519,17 +519,26 @@ export async function runLotVision(
 }
 
 /**
- * Dedupe suggestions by canonical (name, sourceImagePosition) — the model
- * occasionally lists the same card twice in one image if it's confused.
- * When merging duplicates we keep the higher confidence and sum quantity.
+ * Dedupe suggestions across all images. The model occasionally lists the
+ * same card twice in one image if it's confused, AND the same card across
+ * multiple photo angles. In both cases we collapse to a single entry,
+ * keeping the higher confidence and the MAX quantity (treating multiple
+ * photo angles as the same physical card, not separate copies).
+ *
+ * The key is `(trim + toLowerCase + NFC)` of the name. `coerceSuggestion`
+ * already lowercases+trims, but defensive normalization here protects
+ * cached entries written by older code and any unicode quirks (NBSP,
+ * trailing whitespace, combining marks) that could otherwise produce
+ * "same to a human, different to a Map" keys (bo3).
  */
+function dedupeKey(name: string): string {
+  return name.trim().toLowerCase().normalize("NFC");
+}
+
 export function dedupeSuggestions(suggestions: VisionSuggestion[]): VisionSuggestion[] {
   const byKey = new Map<string, VisionSuggestion>();
   for (const s of suggestions) {
-    // Cross-image dedupe: same name across different photos likely shows the
-    // SAME physical card photographed from different angles. We pick the
-    // single highest-confidence reading rather than summing.
-    const key = s.name;
+    const key = dedupeKey(s.name);
     const existing = byKey.get(key);
     if (!existing) {
       byKey.set(key, { ...s });

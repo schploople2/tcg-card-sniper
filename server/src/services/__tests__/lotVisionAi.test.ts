@@ -97,6 +97,34 @@ describe("dedupeSuggestions", () => {
     ]);
     expect(out.map((s) => s.name)).toEqual(["mewtwo", "pikachu", "mew"]);
   });
+
+  // bo3 — Phase 1 baseline observed 6 cases of duplicate (name, position)
+  // suggestions surviving past dedupeSuggestions. Tighten dedupe to be
+  // resilient to leading/trailing whitespace, casing drift in cached
+  // entries, and unicode normalisation variants.
+  it("collapses duplicates that differ only in whitespace or case (bo3)", () => {
+    const out = dedupeSuggestions([
+      { name: "mega absol ex", quantity: 2, confidence: 0.95, sourceImagePosition: 2, setHint: null, cardNumber: null },
+      { name: "Mega Absol EX", quantity: 2, confidence: 0.95, sourceImagePosition: 2, setHint: null, cardNumber: null },
+      { name: " mega absol ex ", quantity: 1, confidence: 0.90, sourceImagePosition: 2, setHint: null, cardNumber: null },
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].quantity).toBe(2);
+    expect(out[0].confidence).toBe(0.95);
+  });
+
+  it("collapses NFC vs NFD unicode duplicates (bo3)", () => {
+    // "é" can be represented as U+00E9 (NFC) or U+0065 U+0301 (NFD).
+    // Pokémon names use é regularly — without normalisation the same name
+    // in two encodings looks like two cards to a JS Map.
+    const nfc = "pokémon ex";
+    const nfd = "pokémon ex";
+    const out = dedupeSuggestions([
+      { name: nfc, quantity: 1, confidence: 0.9, sourceImagePosition: 0, setHint: null, cardNumber: null },
+      { name: nfd, quantity: 1, confidence: 0.9, sourceImagePosition: 0, setHint: null, cardNumber: null },
+    ]);
+    expect(out).toHaveLength(1);
+  });
 });
 
 // ─── parseModelOutput ────────────────────────────────────────────────────────
