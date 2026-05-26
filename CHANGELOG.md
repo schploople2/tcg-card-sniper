@@ -3,7 +3,12 @@
 All notable user-visible changes to TCG Card Sniper. Generated from
 conventional commits — run `pnpm changelog` to refresh from git.
 
-<!-- changelog-marker: f093ead6106babb355c9474d2a857a2ced9d7904 -->
+<!-- changelog-marker: d8d7be0c989c34cde829aa8ecabffb8deab31ad0 -->
+
+## 2026-05-26
+
+### Added
+- **ocr:** raise per-lot image cap 6 → 12 (7b7)
 
 ## 2026-05-25
 
