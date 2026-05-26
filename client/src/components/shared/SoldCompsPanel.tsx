@@ -38,7 +38,7 @@ export function SoldCompsPanel({
     );
   }
   if (!data) return null;
-  const { summary, rows, query, fromCache } = data;
+  const { summary, rows, query, fromCache, byGrade } = data;
 
   if (summary.count === 0) {
     return (
@@ -94,6 +94,36 @@ export function SoldCompsPanel({
         </div>
       </div>
 
+      {/* C2 — by-grade breakdown. Hides itself when the card has no
+          graded comps. Sorted by median desc so the priciest grade leads. */}
+      {byGrade && byGrade.length > 0 && (
+        <div
+          className="rounded-lg border border-slate-800 bg-slate-900/50 p-3 space-y-1.5"
+          data-testid="by-grade-breakdown"
+        >
+          <p className="text-[11px] uppercase tracking-wide text-slate-500 mb-1">
+            By grade
+          </p>
+          {byGrade.map((g) => (
+            <div
+              key={g.gradeLabel}
+              className="flex items-baseline justify-between gap-2 text-xs"
+              data-testid={`by-grade-row-${g.gradeLabel.replace(/\s+/g, "-")}`}
+            >
+              <span className="text-purple-300 font-medium w-20 shrink-0">
+                {g.gradeLabel}
+              </span>
+              <span className="text-emerald-400 font-semibold tabular-nums">
+                ${g.median.toFixed(2)}
+              </span>
+              <span className="text-[10px] text-slate-500 ml-auto">
+                {g.count} sale{g.count === 1 ? "" : "s"} · ${g.low.toFixed(0)}–${g.high.toFixed(0)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Individual sold rows */}
       <div className="space-y-2">
         {rows.slice(0, 30).map((r) => (
@@ -125,7 +155,9 @@ export function SoldCompsPanel({
                 </span>
                 {r.conditionGrade && (
                   <span className="px-1 py-0.5 rounded bg-slate-800 text-slate-400">
-                    {r.conditionGrade}
+                    {/* C2: prefer specific gradeLabel ("PSA 10") over the
+                        generic "GRADED" bucket whenever we parsed one. */}
+                    {r.gradeLabel ?? r.conditionGrade}
                   </span>
                 )}
                 {r.acceptedOffer && (

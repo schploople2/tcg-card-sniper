@@ -6,7 +6,7 @@ import { requireAuth } from "../middleware/auth.js";
 import { AppError } from "../middleware/errorHandler.js";
 import { fetchCardById } from "../services/pokemontcg.js";
 import { PRICE_CACHE_TTL_MS } from "../config.js";
-import { getSoldComps, summariseSoldComps } from "../services/soldComps.js";
+import { getSoldComps, summariseByGrade, summariseSoldComps } from "../services/soldComps.js";
 import { variantToEbayKeyword } from "../services/priceVariant.js";
 
 export const cardsRouter = Router();
@@ -195,7 +195,11 @@ cardsRouter.get("/:id/sold-comps", async (req, res, next) => {
 
     const { rows, fromCache } = await getSoldComps(query, { cardId: card.id });
     const summary = summariseSoldComps(rows);
-    res.json({ query, summary, rows, fromCache });
+    // C2 — per-grade breakdown (PSA 10 / PSA 9 / BGS 9.5 / etc).
+    // Empty array when the card has no graded comps; the client hides the
+    // breakdown card in that case.
+    const byGrade = summariseByGrade(rows);
+    res.json({ query, summary, byGrade, rows, fromCache });
   } catch (err) {
     next(err);
   }

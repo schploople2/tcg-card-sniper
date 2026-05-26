@@ -132,6 +132,10 @@ model SoldComp {
   totalPrice      Decimal   @db.Decimal(10, 2)
   /// String key matching the rest of the codebase ("NM"/"LP"/"MP"/"HP"/"DMG"/"GRADED"/null)
   conditionGrade  String?
+  /// C2 — Specific grader+score parsed from title when conditionGrade='GRADED'.
+  /// Canonical labels: "PSA 10", "PSA 9", "BGS 9.5", "CGC 10", "SGC 9", etc.
+  /// Null for raw rows or graded rows whose grade we couldn't parse.
+  gradeLabel      String?
   /// True when the listing carried the "Best Offer accepted" badge — the
   /// sold price is then the offer, not the asking price. Distinct signal.
   acceptedOffer   Boolean   @default(false)
@@ -147,6 +151,7 @@ model SoldComp {
   /// duplicate rows.
   @@unique([query, ebayItemId])
   @@index([cardId, soldAt])
+  @@index([cardId, gradeLabel])
   @@index([query, fetchedAt])
 }
 

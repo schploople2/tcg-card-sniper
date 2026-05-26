@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import {
   normaliseCondition,
+  extractGradeLabel,
   mapFindingItem,
   summariseSoldComps,
+  summariseByGrade,
   type SoldCompRow,
 } from "../soldComps.js";
 
@@ -146,6 +148,7 @@ describe("summariseSoldComps", () => {
       shippingCost: 0,
       totalPrice: price,
       conditionGrade: "NM",
+      gradeLabel: null,
       acceptedOffer: false,
       soldAt: new Date(Date.now() - daysAgo * 86400_000),
       imageUrl: null,
@@ -180,5 +183,132 @@ describe("summariseSoldComps", () => {
     const s = summariseSoldComps([row(10, 30), row(20, 1), row(30, 90)]);
     const ageDays = (Date.now() - new Date(s.mostRecentAt!).getTime()) / 86400_000;
     expect(ageDays).toBeLessThan(2);
+  });
+});
+
+describe("extractGradeLabel (C2)", () => {
+  it("extracts PSA + score with space", () => {
+    expect(extractGradeLabel("Charizard PSA 10 Gem Mint")).toBe("PSA 10");
+    expect(extractGradeLabel("Mewtwo psa 9")).toBe("PSA 9");
+  });
+
+  it("extracts grader without space (PSA10)", () => {
+    expect(extractGradeLabel("Pikachu PSA10 1999")).toBe("PSA 10");
+  });
+
+  it("extracts BGS half-grade", () => {
+    expect(extractGradeLabel("Charizard BGS 9.5")).toBe("BGS 9.5");
+    expect(extractGradeLabel("Blastoise bgs 8.5 gem")).toBe("BGS 8.5");
+  });
+
+  it("extracts CGC / SGC / ACE / GMA", () => {
+    expect(extractGradeLabel("Mew CGC 10")).toBe("CGC 10");
+    expect(extractGradeLabel("Rayquaza SGC 9")).toBe("SGC 9");
+    expect(extractGradeLabel("Lugia ACE 10 mint")).toBe("ACE 10");
+    expect(extractGradeLabel("Lapras GMA 8")).toBe("GMA 8");
+  });
+
+  it("returns null when no grader+score combo present", () => {
+    expect(extractGradeLabel("Pikachu Holo 1999")).toBe(null);
+    expect(extractGradeLabel("PSA holder authentic")).toBe(null); // no score
+    expect(extractGradeLabel("BGS pristine")).toBe(null);
+    expect(extractGradeLabel("")).toBe(null);
+    expect(extractGradeLabel(null)).toBe(null);
+    expect(extractGradeLabel(undefined)).toBe(null);
+  });
+
+  it("does not match score-without-grader (year numbers, set numbers)", () => {
+    expect(extractGradeLabel("Charizard 1999 base 4/102")).toBe(null);
+    expect(extractGradeLabel("Mewtwo holo 10 stamp")).toBe(null);
+  });
+
+  it("uppercases the grader for canonical form", () => {
+    // Two different cases of input → same canonical output
+    expect(extractGradeLabel("Charizard psa 10")).toBe(extractGradeLabel("Charizard PSA 10"));
+  });
+
+  it("takes the FIRST match when multiple appear", () => {
+    expect(
+      extractGradeLabel("Comparison: PSA 9 vs BGS 9.5 — your choice")
+    ).toBe("PSA 9");
+  });
+});
+
+describe("summariseByGrade (C2)", () => {
+  function gradedRow(price: number, gradeLabel: string | null, daysAgo = 1): SoldCompRow {
+    return {
+      ebayItemId: `id-${price}-${gradeLabel ?? "raw"}`,
+      title: gradeLabel ?? "raw",
+      soldPrice: price,
+      shippingCost: 0,
+      totalPrice: price,
+      conditionGrade: gradeLabel ? "GRADED" : "NM",
+      gradeLabel,
+      acceptedOffer: false,
+      soldAt: new Date(Date.now() - daysAgo * 86400_000),
+      imageUrl: null,
+      ebayUrl: "x",
+    };
+  }
+
+  it("returns [] for an empty input", () => {
+    expect(summariseByGrade([])).toEqual([]);
+  });
+
+  it("returns [] when no rows carry a gradeLabel (all raw)", () => {
+    expect(
+      summariseByGrade([gradedRow(50, null), gradedRow(60, null)])
+    ).toEqual([]);
+  });
+
+  it("groups by gradeLabel and computes per-grade median", () => {
+    const out = summariseByGrade([
+      gradedRow(380, "PSA 10"),
+      gradedRow(420, "PSA 10"),
+      gradedRow(460, "PSA 10"),
+      gradedRow(150, "PSA 9"),
+      gradedRow(180, "PSA 9"),
+      gradedRow(70, null), // raw — skipped
+    ]);
+    expect(out).toHaveLength(2);
+    const psa10 = out.find((g) => g.gradeLabel === "PSA 10")!;
+    expect(psa10.count).toBe(3);
+    expect(psa10.median).toBe(420);
+    expect(psa10.low).toBe(380);
+    expect(psa10.high).toBe(460);
+
+    const psa9 = out.find((g) => g.gradeLabel === "PSA 9")!;
+    expect(psa9.count).toBe(2);
+    expect(psa9.median).toBe(165); // mean of 150 + 180
+  });
+
+  it("sorts output by median desc (most valuable first)", () => {
+    const out = summariseByGrade([
+      gradedRow(50, "PSA 8"),
+      gradedRow(400, "PSA 10"),
+      gradedRow(150, "PSA 9"),
+    ]);
+    expect(out.map((g) => g.gradeLabel)).toEqual(["PSA 10", "PSA 9", "PSA 8"]);
+  });
+
+  it("picks most-recent soldAt per grade", () => {
+    const out = summariseByGrade([
+      gradedRow(400, "PSA 10", 30),
+      gradedRow(420, "PSA 10", 1),
+      gradedRow(380, "PSA 10", 60),
+    ]);
+    const ageDays =
+      (Date.now() - new Date(out[0].mostRecentAt).getTime()) / 86400_000;
+    expect(ageDays).toBeLessThan(2);
+  });
+
+  it("rounds median to 2 decimal places", () => {
+    const out = summariseByGrade([
+      gradedRow(10, "PSA 10"),
+      gradedRow(15, "PSA 10"),
+      gradedRow(20, "PSA 10"),
+    ]);
+    expect(out[0].median).toBe(15);
+    expect(Number.isInteger(out[0].median * 100)).toBe(true);
   });
 });

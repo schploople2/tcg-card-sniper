@@ -24,15 +24,29 @@ export interface SoldCompRow {
   shippingCost: number | null;
   totalPrice: number;
   conditionGrade: string | null;
+  /** C2 — Specific grade label parsed from the title (e.g. "PSA 10"). */
+  gradeLabel: string | null;
   acceptedOffer: boolean;
   soldAt: string;
   imageUrl: string | null;
   ebayUrl: string;
 }
 
+/** C2 — Per-grade aggregation. Server sorts by median desc. */
+export interface GradeBreakdown {
+  gradeLabel: string;
+  count: number;
+  median: number;
+  low: number;
+  high: number;
+  mostRecentAt: string;
+}
+
 export interface SoldCompsResponse {
   query: string;
   summary: SoldCompSummary;
+  /** C2 — by-grade breakdown. Empty when card has no graded comps. */
+  byGrade: GradeBreakdown[];
   rows: SoldCompRow[];
   fromCache: boolean;
 }

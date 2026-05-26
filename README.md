@@ -18,6 +18,7 @@ A Pokémon card deal-finder. Scores live eBay listings against TCGPlayer / Cardm
 | 👤 Watched eBay sellers | [d5x](docs/features/d5x-watched-seller.md) |
 | 🔔 Web Push notifications (PWA) | [rcs](docs/features/rcs-web-push.md) |
 | 💵 Sold-comps panel (eBay completed listings via ScrapingBee) | [l6x](docs/features/l6x-sold-comps.md) |
+| 🏅 Graded price tracks (PSA 9/10, BGS 9.5) on the sold-comps panel | [bmt](docs/features/bmt-graded-prices.md) |
 | 📚 Bulk-rarity bucketing for binder lots | [yam](docs/features/yam-bulk-rarity-bucketing.md) |
 | 🔖 Saved Lots — pin eBay lot listings to a Saved tab | [u8y](docs/features/u8y-saved-lots.md) |
 | 🔍 In-app lightbox for lot listing photos | [n5f](docs/features/n5f-image-lightbox.md) |

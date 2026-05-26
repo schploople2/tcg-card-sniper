@@ -34,6 +34,8 @@ export interface SoldCompRow {
   shippingCost: number | null;
   totalPrice: number;
   conditionGrade: string | null;
+  /** C2 — Specific grade label parsed from title (e.g. "PSA 10"). Null when raw or unparseable. */
+  gradeLabel: string | null;
   acceptedOffer: boolean;
   soldAt: Date;
   imageUrl: string | null;
@@ -53,6 +55,20 @@ export interface SoldCompSummary {
 }
 
 /**
+ * C2 — Per-grade aggregation of sold comps. One entry per distinct
+ * gradeLabel ("PSA 10", "BGS 9.5", etc) sorted by median desc so the
+ * most valuable grade leads the UI.
+ */
+export interface GradeBreakdown {
+  gradeLabel: string;
+  count: number;
+  median: number;
+  low: number;
+  high: number;
+  mostRecentAt: string;
+}
+
+/**
  * Map eBay's free-text condition strings ("Pre-Owned", "Brand New", "PSA 9",
  * "Like New") into the canonical NM/LP/MP/HP/DMG/GRADED keys the rest of the
  * app uses. Returns null for unrecognised values rather than guessing.
@@ -69,6 +85,25 @@ export function normaliseCondition(text: string | null | undefined): string | nu
   if (/acceptable|damaged|dmg|poor/.test(t)) return "DMG";
   if (/pre-owned|used/.test(t)) return null; // too vague
   return null;
+}
+
+/**
+ * C2 — Extract a canonical grader+score label from a sold-listing
+ * title. Returns strings like "PSA 10", "PSA 9", "BGS 9.5", "CGC 10",
+ * "SGC 9", "ACE 10", "GMA 8". Null when no grader+score pair appears
+ * (raw cards, ambiguous "PSA cert" with no number, etc).
+ *
+ * Bounded grader list — matches what we surface as "GRADED" in
+ * `normaliseCondition`. Score whitelist (10, 9.5, ... 1) avoids
+ * false positives on year numbers / set numbers in the title.
+ */
+const GRADE_RE = /\b(PSA|BGS|CGC|SGC|ACE|GMA)\s*(10|9\.5|9|8\.5|8|7\.5|7|6\.5|6|5\.5|5|4\.5|4|3\.5|3|2\.5|2|1\.5|1)\b/i;
+
+export function extractGradeLabel(title: string | null | undefined): string | null {
+  if (!title) return null;
+  const m = title.match(GRADE_RE);
+  if (!m) return null;
+  return `${m[1].toUpperCase()} ${m[2]}`;
 }
 
 /**
@@ -157,6 +192,7 @@ export function mapFindingItem(item: FindingItem): SoldCompRow | null {
     shippingCost: Number.isFinite(shippingCost as number) ? shippingCost : null,
     totalPrice: soldPrice + (Number.isFinite(shippingCost as number) ? (shippingCost as number) : 0),
     conditionGrade: normaliseCondition(conditionText),
+    gradeLabel: extractGradeLabel(title),
     // Finding API doesn't expose "best offer accepted" reliably; v1 leaves
     // this false. Future: cross-ref against bidCount + bestOfferEnabled if
     // we want a heuristic.
@@ -234,6 +270,7 @@ export function parseSoldListingsHtml(html: string): SoldCompRow[] {
       shippingCost,
       totalPrice: soldPrice + (shippingCost ?? 0),
       conditionGrade: normaliseCondition(conditionText),
+      gradeLabel: extractGradeLabel(titleText),
       acceptedOffer,
       // eBay's sold page doesn't always include a per-card sold date in
       // markup. Default to now() — within the 90-day window we surface.
@@ -386,6 +423,7 @@ export async function getSoldComps(
                 shippingCost: r.shippingCost ?? null,
                 totalPrice: r.totalPrice,
                 conditionGrade: r.conditionGrade ?? null,
+                gradeLabel: r.gradeLabel ?? null,
                 acceptedOffer: r.acceptedOffer,
                 soldAt: r.soldAt,
                 imageUrl: r.imageUrl ?? null,
@@ -398,6 +436,7 @@ export async function getSoldComps(
                 shippingCost: r.shippingCost ?? null,
                 totalPrice: r.totalPrice,
                 conditionGrade: r.conditionGrade ?? null,
+                gradeLabel: r.gradeLabel ?? null,
                 acceptedOffer: r.acceptedOffer,
                 soldAt: r.soldAt,
                 imageUrl: r.imageUrl ?? null,
@@ -435,6 +474,7 @@ export async function getSoldComps(
       shippingCost: r.shippingCost != null ? Number(r.shippingCost) : null,
       totalPrice: Number(r.totalPrice),
       conditionGrade: r.conditionGrade,
+      gradeLabel: r.gradeLabel,
       acceptedOffer: r.acceptedOffer,
       soldAt: r.soldAt,
       imageUrl: r.imageUrl,
@@ -466,4 +506,42 @@ export function summariseSoldComps(rows: SoldCompRow[]): SoldCompSummary {
     high: prices[prices.length - 1],
     mostRecentAt,
   };
+}
+
+/**
+ * C2 — Group sold comps by extracted `gradeLabel` and report a per-grade
+ * median/low/high. Rows without a gradeLabel (raw, or grade unparseable)
+ * are skipped. Output is sorted by median desc so the priciest grade
+ * leads the UI list.
+ */
+export function summariseByGrade(rows: SoldCompRow[]): GradeBreakdown[] {
+  const byGrade = new Map<string, SoldCompRow[]>();
+  for (const r of rows) {
+    if (!r.gradeLabel) continue;
+    const bucket = byGrade.get(r.gradeLabel) ?? [];
+    bucket.push(r);
+    byGrade.set(r.gradeLabel, bucket);
+  }
+  const out: GradeBreakdown[] = [];
+  for (const [gradeLabel, gradeRows] of byGrade) {
+    const prices = gradeRows.map((r) => r.totalPrice).sort((a, b) => a - b);
+    const mid = Math.floor(prices.length / 2);
+    const median =
+      prices.length % 2 === 0
+        ? (prices[mid - 1] + prices[mid]) / 2
+        : prices[mid];
+    const mostRecentAt = gradeRows
+      .map((r) => r.soldAt)
+      .reduce((a, b) => (a > b ? a : b))
+      .toISOString();
+    out.push({
+      gradeLabel,
+      count: gradeRows.length,
+      median: Number(median.toFixed(2)),
+      low: prices[0],
+      high: prices[prices.length - 1],
+      mostRecentAt,
+    });
+  }
+  return out.sort((a, b) => b.median - a.median);
 }
