@@ -56,12 +56,14 @@ const envSchema = z.object({
    * disable cleanly (the UI hides the button when the endpoint returns 503).
    *
    * `ANTHROPIC_API_KEY` is only required when `OCR_PROVIDER=claude`.
-   * `OCR_MAX_IMAGES_PER_LOT` caps spend per call — at ~$0.003/image this
-   * keeps a single lot under $0.02 even with the heaviest listings.
+   * `OCR_MAX_IMAGES_PER_LOT` caps spend per call — at ~$0.003/image, the
+   * default 12 keeps a single lot under $0.04. Raised from 6 → 12 after
+   * Phase 1 baseline (findings.md G6) showed 12-photo binder listings
+   * silently losing photos 6-11. Per-user daily cap still bounds spend.
    */
   OCR_PROVIDER: z.enum(["claude", "none"]).default("none"),
   ANTHROPIC_API_KEY: z.string().optional(),
-  OCR_MAX_IMAGES_PER_LOT: z.coerce.number().int().min(1).max(20).default(6),
+  OCR_MAX_IMAGES_PER_LOT: z.coerce.number().int().min(1).max(20).default(12),
   /**
    * Soft cap on per-user, per-day OCR image processing. Cache hits don't
    * count — only fresh API-billed images. When a user crosses this number

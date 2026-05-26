@@ -5,7 +5,7 @@ Research notes for continued development of the Pc vision-AI pipeline.
 ## Current pipeline (as of 2026-05-23)
 
 **Server**
-- `services/lotVisionAi.ts` — Claude `claude-sonnet-4-5` vision over `LotImage.imageUrl`. Cache on `LotImage.ocrText` (reserved JSON column, no migration). Spend cap `OCR_MAX_IMAGES_PER_LOT` (default 6). Provider gated by `OCR_PROVIDER=claude` + `ANTHROPIC_API_KEY`.
+- `services/lotVisionAi.ts` — Claude `claude-sonnet-4-5` vision over `LotImage.imageUrl`. Cache on `LotImage.ocrText` (reserved JSON column, no migration). Spend cap `OCR_MAX_IMAGES_PER_LOT` (default 12; raised from 6 in 7b7 to cover 12-photo binder lots). Provider gated by `OCR_PROVIDER=claude` + `ANTHROPIC_API_KEY`.
 - `services/lotImages.ts` — Lazy fetch via eBay Browse `GET /buy/browse/v1/item/<id>`, persist to `LotImage` `(ebayItemId, position, imageUrl, ocrText)`.
 - `routes/lots.ts:349-399` — `POST /api/lots/:ebayItemId/ocr-suggestions`. Idempotent. Returns suggestions with candidates (resolved through `namesToExtracted` → `valueLot`), `cacheStatus`, `imagesProcessed`. 503 when provider disabled.
 

@@ -18,7 +18,7 @@ on every search result.
 
 The pipeline that makes this ambient — A4 — runs every hour at minute :15
 and processes up to 5 never-OCR'd lots per sweep. Worst-case spend:
-~$2.16/day at the default `OCR_MAX_IMAGES_PER_LOT=6` cap.
+~$4.32/day at the default `OCR_MAX_IMAGES_PER_LOT=12` cap (raised from 6 in 7b7 to cover 12-photo listings).
 
 ## User flow
 

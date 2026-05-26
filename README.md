@@ -62,7 +62,7 @@ Visit http://localhost:5173 and register an account.
 | `CORS_ORIGIN` | no | Defaults to local dev client URL |
 | `OCR_PROVIDER` | no | `claude` or `none` (default) |
 | `ANTHROPIC_API_KEY` | required when OCR enabled | Claude Vision for lot OCR |
-| `OCR_MAX_IMAGES_PER_LOT` | no | Default 6 |
+| `OCR_MAX_IMAGES_PER_LOT` | no | Default 12 (max 20) |
 | `OCR_DAILY_IMAGES_PER_USER` | no | Default 100 |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | required for push to work | Generate with `node -e "console.log(require('web-push').generateVAPIDKeys())"` |
 | `VAPID_SUBJECT` | no | `mailto:` contact for browser prompts |

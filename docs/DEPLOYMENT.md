@@ -55,7 +55,7 @@ Wait for the build logs URL to come back, then watch it until you see "Healthche
 | `CORS_ORIGIN` | no | Defaults to `localhost:5173`; set to client prod URL |
 | `OCR_PROVIDER` | no | `claude` or `none` (default) |
 | `ANTHROPIC_API_KEY` | conditional | Required when `OCR_PROVIDER=claude` |
-| `OCR_MAX_IMAGES_PER_LOT` | no | Default 6, max 20 |
+| `OCR_MAX_IMAGES_PER_LOT` | no | Default 12, max 20 |
 | `OCR_DAILY_IMAGES_PER_USER` | no | Default 100 |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` | conditional | Required for web push to fire |
 | `SCRAPINGBEE_API_KEY` | conditional | Required for sold-comp scrapes; without it the C1 panel falls through to the Finding API (usually fails) |
