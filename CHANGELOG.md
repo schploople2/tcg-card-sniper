@@ -3,7 +3,12 @@
 All notable user-visible changes to TCG Card Sniper. Generated from
 conventional commits — run `pnpm changelog` to refresh from git.
 
-<!-- changelog-marker: dee0c3a6731329201ee3a55db09e6afbf47c28f7 -->
+<!-- changelog-marker: da97cfca3cf77fedf7ad70e440994862f152c3f6 -->
+
+## 2026-05-26
+
+### Fixed
+- **ocr:** close two duplicate-leak holes past dedupeSuggestions (bo3)
 
 ## 2026-05-26
 
