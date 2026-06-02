@@ -3,7 +3,12 @@
 All notable user-visible changes to TCG Card Sniper. Generated from
 conventional commits — run `pnpm changelog` to refresh from git.
 
-<!-- changelog-marker: 40f17625e4b7160e6b9f0a9766182a344988762b -->
+<!-- changelog-marker: c5124e3de439b720fa787009173d5072b11e190b -->
+
+## 2026-06-02
+
+### Added
+- **collection:** tap card → action sheet (mark collected / add to watchlist) (cxu)
 
 ## 2026-06-02
 
