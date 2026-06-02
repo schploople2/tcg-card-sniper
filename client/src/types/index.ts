@@ -96,11 +96,24 @@ export interface WatchedCard {
   /** Optional user-set target. When totalCost ≤ this on a fresh listing,
    *  the refresh job creates a TARGET_HIT alert. */
   targetPrice: number | null;
+  /** 4ke — WatchlistGroup id; null = "Ungrouped" */
+  groupId: string | null;
   createdAt: string;
   updatedAt: string;
   /** Best current listing included on GET /api/cards */
   listings?: Listing[];
   priceCache?: PriceCache | null;
+}
+
+// ─── WatchlistGroup (4ke) ────────────────────────────────────────────────────
+
+export interface WatchlistGroup {
+  id: string;
+  name: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+  cardCount: number;
 }
 
 // ─── Alerts (P3 + P4) ────────────────────────────────────────────────────────
@@ -306,12 +319,16 @@ export interface CreateCardPayload {
   cardName?: string;
   setName?: string;
   cardNumber?: string;
+  /** 4ke — null or omitted goes to "Ungrouped" */
+  groupId?: string | null;
 }
 
 export interface UpdateCardPayload {
   variant?: string;
   /** Set to null or 0 to clear the target; null is canonical "no target." */
   targetPrice?: number | null;
+  /** 4ke — null = move to Ungrouped; undefined = no change */
+  groupId?: string | null;
 }
 
 // ─── Variant helpers (mirror server/src/services/priceVariant.ts) ────────────

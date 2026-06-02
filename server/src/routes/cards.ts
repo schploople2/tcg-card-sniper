@@ -22,6 +22,8 @@ const createCardSchema = z.object({
   cardName: z.string().min(1).max(200).optional(),
   setName: z.string().min(1).max(200).optional(),
   cardNumber: z.string().max(20).optional(),
+  /** 4ke — optional WatchlistGroup id. null/omitted = "Ungrouped". */
+  groupId: z.string().nullable().optional(),
 });
 
 const updateCardSchema = z.object({
@@ -39,7 +41,27 @@ const updateCardSchema = z.object({
       const n = typeof v === "string" ? parseFloat(v) : v;
       return n === 0 ? null : n;
     }),
+  /** 4ke — null = move to Ungrouped. Missing = no change to current group. */
+  groupId: z.string().nullable().optional(),
 });
+
+/**
+ * Guard: when the client sends a groupId, confirm it exists and belongs to
+ * the user. Without this check, a malicious user could assign their cards
+ * to another user's group. Returns the validated id, or throws 404.
+ */
+async function assertGroupOwnedByUser(
+  groupId: string,
+  userId: string,
+): Promise<void> {
+  const group = await prisma.watchlistGroup.findFirst({
+    where: { id: groupId, userId },
+    select: { id: true },
+  });
+  if (!group) {
+    throw new AppError(404, `Watchlist group "${groupId}" not found`);
+  }
+}
 
 // ─── Routes ───────────────────────────────────────────────────────────────────
 
@@ -98,6 +120,10 @@ cardsRouter.post("/", async (req, res, next) => {
       );
     }
 
+    if (data.groupId) {
+      await assertGroupOwnedByUser(data.groupId, req.user!.userId);
+    }
+
     const now = new Date();
     const card = await prisma.watchedCard.create({
       data: {
@@ -107,6 +133,7 @@ cardsRouter.post("/", async (req, res, next) => {
         setName: catalogCard.setName,
         cardNumber: catalogCard.number,
         variant: data.variant,
+        groupId: data.groupId ?? null,
       },
     });
 
@@ -205,7 +232,7 @@ cardsRouter.get("/:id/sold-comps", async (req, res, next) => {
   }
 });
 
-/** PATCH /api/cards/:id — update variant and/or targetPrice */
+/** PATCH /api/cards/:id — update variant, targetPrice, and/or groupId */
 cardsRouter.patch("/:id", async (req, res, next) => {
   try {
     const updates = updateCardSchema.parse(req.body);
@@ -214,6 +241,10 @@ cardsRouter.patch("/:id", async (req, res, next) => {
       where: { id: req.params.id, userId: req.user!.userId },
     });
     if (!existing) throw new AppError(404, "Card not found");
+
+    if (updates.groupId) {
+      await assertGroupOwnedByUser(updates.groupId, req.user!.userId);
+    }
 
     const card = await prisma.watchedCard.update({
       where: { id: req.params.id },

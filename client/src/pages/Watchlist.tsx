@@ -1,15 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, Pencil, Trash2, RefreshCw, TrendingUp, ChevronDown, Search, Check } from "lucide-react";
+import { Plus, Pencil, Trash2, RefreshCw, TrendingUp, ChevronDown, Search, Check, FolderPlus, MoreVertical } from "lucide-react";
 import { PageShell } from "@/components/layout/PageShell";
 import { DealScoreBadge } from "@/components/shared/DealScoreBadge";
 import { PriceBar } from "@/components/shared/PriceBar";
 import { CardDetailDrawer } from "@/components/shared/CardDetailDrawer";
+import { WatchlistGroupPicker } from "@/components/shared/WatchlistGroupPicker";
 import {
   useCards,
   useCreateCard,
   useUpdateCard,
   useDeleteCard,
 } from "@/hooks/useCards";
+import {
+  useWatchlistGroups,
+  useCreateGroup,
+  useRenameGroup,
+  useDeleteGroup,
+} from "@/hooks/useWatchlistGroups";
+import type { WatchlistGroup } from "@/types";
 import { useRefreshListings } from "@/hooks/useListings";
 import { useCatalogSearch } from "@/hooks/useCatalog";
 import { formatCurrency } from "@/lib/utils";
@@ -207,11 +215,13 @@ interface CardFormDialogProps {
 function CardFormDialog({ open, onClose, initial }: CardFormDialogProps) {
   const createCard = useCreateCard();
   const updateCard = useUpdateCard();
+  const { data: groups = [] } = useWatchlistGroups();
   const isEdit = !!initial;
 
   // ── Add-mode state ────────────────────────────────────────────────────────
   const [selected, setSelected] = useState<CatalogCard | null>(null);
   const [variant, setVariant] = useState<string>(initial?.variant ?? "");
+  const [groupId, setGroupId] = useState<string | null>(initial?.groupId ?? null);
 
   // When the user picks a new card, auto-pick the first available variant
   useEffect(() => {
@@ -235,7 +245,7 @@ function CardFormDialog({ open, onClose, initial }: CardFormDialogProps) {
     e.preventDefault();
     if (isEdit) {
       updateCard.mutate(
-        { id: initial!.id, variant },
+        { id: initial!.id, variant, groupId },
         { onSuccess: onClose }
       );
     } else if (selected) {
@@ -246,6 +256,7 @@ function CardFormDialog({ open, onClose, initial }: CardFormDialogProps) {
           cardName: selected.name,
           setName: selected.setName,
           cardNumber: selected.number,
+          groupId,
         },
         { onSuccess: onClose }
       );
@@ -325,6 +336,20 @@ function CardFormDialog({ open, onClose, initial }: CardFormDialogProps) {
             </p>
           </div>
 
+          {/* Group picker — defaults to Ungrouped, can create a new group inline */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-400">Group</label>
+            <WatchlistGroupPicker
+              value={groupId}
+              groups={groups}
+              onChange={setGroupId}
+              variant="form"
+            />
+            <p className="text-[10px] text-slate-500">
+              Groups appear as collapsible sections on the watchlist. Pick &quot;New group…&quot; to create one.
+            </p>
+          </div>
+
           <div className="rounded-lg border border-slate-800 bg-slate-800/40 px-3 py-2.5">
             <p className="text-[11px] text-slate-400 leading-relaxed">
               <Check className="inline h-3 w-3 mr-1 text-[#F5C518]" />
@@ -362,16 +387,19 @@ function CardFormDialog({ open, onClose, initial }: CardFormDialogProps) {
 
 function CardTile({
   card,
+  groups,
   onEdit,
   onDelete,
   onViewDetails,
 }: {
   card: WatchedCard;
+  groups: WatchlistGroup[];
   onEdit: () => void;
   onDelete: () => void;
   onViewDetails: () => void;
 }) {
   const refreshListings = useRefreshListings(card.id);
+  const updateCard = useUpdateCard();
   const [expanded, setExpanded] = useState(false);
 
   const bestListing = card.listings?.[0];
@@ -412,9 +440,20 @@ function CardTile({
             {card.setName}
             {card.cardNumber && ` · #${card.cardNumber}`}
           </p>
-          <Badge className="mt-1.5 text-[10px] bg-slate-800 text-slate-400 border border-slate-700">
-            {variantLabel(card.variant)}
-          </Badge>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <Badge className="text-[10px] bg-slate-800 text-slate-400 border border-slate-700">
+              {variantLabel(card.variant)}
+            </Badge>
+            <WatchlistGroupPicker
+              value={card.groupId}
+              groups={groups}
+              variant="chip"
+              disabled={updateCard.isPending}
+              onChange={(groupId) =>
+                updateCard.mutate({ id: card.id, groupId })
+              }
+            />
+          </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
           <Button
@@ -516,6 +555,224 @@ function CardTile({
   );
 }
 
+// ─── Group section — 4ke ────────────────────────────────────────────────────
+
+function GroupSection({
+  group,
+  cards,
+  groups,
+  onEdit,
+  onDelete,
+  onViewDetails,
+}: {
+  /** null = the "Ungrouped" bucket. Always renders, never deletable, no menu. */
+  group: WatchlistGroup | null;
+  cards: WatchedCard[];
+  groups: WatchlistGroup[];
+  onEdit: (card: WatchedCard) => void;
+  onDelete: (card: WatchedCard) => void;
+  onViewDetails: (card: WatchedCard) => void;
+}) {
+  const [expanded, setExpanded] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState(group?.name ?? "");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const renameGroup = useRenameGroup();
+  const deleteGroup = useDeleteGroup();
+
+  // Hide the Ungrouped section when it's empty AND the user has groups —
+  // it's just noise. When the user has no groups at all, keep it visible
+  // so the page doesn't feel empty.
+  if (group == null && cards.length === 0 && groups.length > 0) return null;
+
+  const headerLabel = group?.name ?? "Ungrouped";
+
+  function handleRename(e: React.FormEvent) {
+    e.preventDefault();
+    if (!group) return;
+    const name = renameValue.trim();
+    if (!name || name === group.name) {
+      setRenameOpen(false);
+      return;
+    }
+    renameGroup.mutate(
+      { id: group.id, name },
+      { onSuccess: () => setRenameOpen(false) },
+    );
+  }
+
+  function handleDelete() {
+    if (!group) return;
+    deleteGroup.mutate(group.id, {
+      onSuccess: () => setConfirmDelete(false),
+    });
+  }
+
+  return (
+    <section data-testid="group-section" data-group-id={group?.id ?? "__ungrouped__"}>
+      <div className="mb-3 flex items-center justify-between">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="group flex items-center gap-2 text-left"
+          aria-expanded={expanded}
+        >
+          <ChevronDown
+            className={`h-4 w-4 text-slate-500 transition-transform ${
+              expanded ? "" : "-rotate-90"
+            }`}
+          />
+          <h2 className="text-lg font-semibold text-slate-100 group-hover:text-white">
+            {headerLabel}
+          </h2>
+          <span className="text-sm text-slate-500">
+            {cards.length} card{cards.length === 1 ? "" : "s"}
+          </span>
+        </button>
+
+        {group && (
+          <div className="relative">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-slate-500 hover:text-slate-200"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label={`Group actions for ${group.name}`}
+              data-testid="group-menu-trigger"
+            >
+              <MoreVertical className="h-4 w-4" />
+            </Button>
+            {menuOpen && (
+              <>
+                {/* Click-outside backdrop */}
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setMenuOpen(false)}
+                  aria-hidden
+                />
+                <div className="absolute right-0 top-full z-20 mt-1 w-36 overflow-hidden rounded-md border border-slate-700 bg-slate-900 text-sm shadow-lg">
+                  <button
+                    type="button"
+                    className="block w-full px-3 py-2 text-left text-slate-200 hover:bg-slate-800"
+                    onClick={() => {
+                      setRenameValue(group.name);
+                      setRenameOpen(true);
+                      setMenuOpen(false);
+                    }}
+                    data-testid="group-action-rename"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    className="block w-full px-3 py-2 text-left text-red-400 hover:bg-red-950/40"
+                    onClick={() => {
+                      setConfirmDelete(true);
+                      setMenuOpen(false);
+                    }}
+                    data-testid="group-action-delete"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {expanded &&
+        (cards.length === 0 ? (
+          <p className="rounded-lg border border-dashed border-slate-800 px-4 py-6 text-center text-sm text-slate-500">
+            No cards in this group yet. Use the group picker on any card to move it here.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {cards.map((card) => (
+              <CardTile
+                key={card.id}
+                card={card}
+                groups={groups}
+                onEdit={() => onEdit(card)}
+                onDelete={() => onDelete(card)}
+                onViewDetails={() => onViewDetails(card)}
+              />
+            ))}
+          </div>
+        ))}
+
+      {/* Rename dialog */}
+      <Dialog open={renameOpen} onOpenChange={(v) => !v && setRenameOpen(false)}>
+        <DialogContent className="bg-[#0f172a] border-slate-800 text-slate-100 max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Rename group</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleRename} className="space-y-3">
+            <Input
+              autoFocus
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              maxLength={60}
+              data-testid="group-rename-input"
+            />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setRenameOpen(false)}
+                disabled={renameGroup.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={!renameValue.trim() || renameGroup.isPending}
+                className="bg-[#F5C518] hover:bg-[#e0b416] text-slate-900"
+              >
+                {renameGroup.isPending ? "Saving…" : "Save"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete confirm */}
+      {group && confirmDelete && (
+        <AlertDialog open onOpenChange={(v) => !v && setConfirmDelete(false)}>
+          <AlertDialogContent className="bg-[#0f172a] border-slate-800 text-slate-100">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-white">Delete group?</AlertDialogTitle>
+              <AlertDialogDescription className="text-slate-400">
+                Delete <span className="text-slate-200 font-medium">{group.name}</span>?{" "}
+                {cards.length > 0
+                  ? `${cards.length} card${cards.length === 1 ? "" : "s"} will move to "Ungrouped" — none will be deleted.`
+                  : "This group has no cards."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel
+                disabled={deleteGroup.isPending}
+                className="bg-slate-800 border-slate-700 text-slate-200 hover:bg-slate-700"
+              >
+                Cancel
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDelete}
+                disabled={deleteGroup.isPending}
+                className="bg-red-600 text-white hover:bg-red-500"
+              >
+                {deleteGroup.isPending ? "Deleting…" : "Delete group"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+    </section>
+  );
+}
+
 // ─── Skeleton card ─────────────────────────────────────────────────────────
 
 function SkeletonCard() {
@@ -536,7 +793,11 @@ function SkeletonCard() {
 
 export default function Watchlist() {
   const { data: cards, isLoading } = useCards();
+  const { data: groups = [] } = useWatchlistGroups();
   const deleteCard = useDeleteCard();
+  const createGroup = useCreateGroup();
+  const [newGroupOpen, setNewGroupOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
 
   const [formOpen, setFormOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<WatchedCard | undefined>(undefined);
@@ -553,6 +814,35 @@ export default function Watchlist() {
     setFormOpen(true);
   }
 
+  // Bucket cards by groupId. Groups render in sortOrder; Ungrouped is
+  // always last so the user's deliberate groupings come first.
+  const bucketed = useMemo(() => {
+    const byGroup = new Map<string, WatchedCard[]>();
+    const ungrouped: WatchedCard[] = [];
+    for (const c of cards ?? []) {
+      if (c.groupId == null) {
+        ungrouped.push(c);
+      } else {
+        const arr = byGroup.get(c.groupId) ?? [];
+        arr.push(c);
+        byGroup.set(c.groupId, arr);
+      }
+    }
+    return { byGroup, ungrouped };
+  }, [cards]);
+
+  function handleCreateGroup(e: React.FormEvent) {
+    e.preventDefault();
+    const name = newGroupName.trim();
+    if (!name) return;
+    createGroup.mutate(name, {
+      onSuccess: () => {
+        setNewGroupOpen(false);
+        setNewGroupName("");
+      },
+    });
+  }
+
   return (
     <PageShell>
       {/* Header */}
@@ -563,13 +853,27 @@ export default function Watchlist() {
             {cards?.length ?? 0} card{cards?.length !== 1 ? "s" : ""} tracked
           </p>
         </div>
-        <Button
-          onClick={openAdd}
-          className="bg-[#F5C518] text-slate-900 hover:bg-[#f0ba00] font-semibold"
-        >
-          <Plus className="h-4 w-4 mr-1.5" />
-          Add Card
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setNewGroupName("");
+              setNewGroupOpen(true);
+            }}
+            className="border-slate-700 bg-slate-900/40 hover:bg-slate-800 text-slate-200"
+            data-testid="new-group-button"
+          >
+            <FolderPlus className="h-4 w-4 mr-1.5" />
+            New Group
+          </Button>
+          <Button
+            onClick={openAdd}
+            className="bg-[#F5C518] text-slate-900 hover:bg-[#f0ba00] font-semibold"
+          >
+            <Plus className="h-4 w-4 mr-1.5" />
+            Add Card
+          </Button>
+        </div>
       </div>
 
       {/* Grid */}
@@ -593,18 +897,67 @@ export default function Watchlist() {
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {cards.map((card) => (
-            <CardTile
-              key={card.id}
-              card={card}
-              onEdit={() => openEdit(card)}
-              onDelete={() => setDeleteTarget(card)}
-              onViewDetails={() => setDrawerCard(card)}
-            />
-          ))}
+        <div className="space-y-6">
+          {groups.map((g) => {
+            const groupCards = bucketed.byGroup.get(g.id) ?? [];
+            return (
+              <GroupSection
+                key={g.id}
+                group={g}
+                cards={groupCards}
+                groups={groups}
+                onEdit={openEdit}
+                onDelete={setDeleteTarget}
+                onViewDetails={setDrawerCard}
+              />
+            );
+          })}
+          <GroupSection
+            key="__ungrouped__"
+            group={null}
+            cards={bucketed.ungrouped}
+            groups={groups}
+            onEdit={openEdit}
+            onDelete={setDeleteTarget}
+            onViewDetails={setDrawerCard}
+          />
         </div>
       )}
+
+      {/* New group dialog (header button) */}
+      <Dialog open={newGroupOpen} onOpenChange={(v) => !v && setNewGroupOpen(false)}>
+        <DialogContent className="bg-[#0f172a] border-slate-800 text-slate-100 max-w-sm">
+          <DialogHeader>
+            <DialogTitle>New group</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleCreateGroup} className="space-y-3">
+            <Input
+              autoFocus
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+              placeholder="e.g. High Priority Cards"
+              maxLength={60}
+            />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setNewGroupOpen(false)}
+                disabled={createGroup.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={!newGroupName.trim() || createGroup.isPending}
+                className="bg-[#F5C518] hover:bg-[#e0b416] text-slate-900"
+              >
+                {createGroup.isPending ? "Creating…" : "Create"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Add / Edit dialog */}
       {formOpen && (

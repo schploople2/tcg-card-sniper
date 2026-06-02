@@ -99,6 +99,7 @@ model User {
   watchedSellers  WatchedSeller[]
   pushSubscriptions PushSubscription[]
   collectionEntries CollectionEntry[]
+  watchlistGroups   WatchlistGroup[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -280,15 +281,44 @@ model WatchedCard {
   /// whose totalCost <= targetPrice, an Alert (kind = TARGET_HIT) is created.
   /// Null = no target; alerts only fire for HOT-tier deals.
   targetPrice  Decimal? @db.Decimal(10, 2)
+  /// 4ke: user-defined grouping. null = "Ungrouped" bucket on the
+  /// Watchlist page. onDelete: SetNull so deleting a group orphans its
+  /// cards back to Ungrouped instead of nuking them.
+  groupId      String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group          WatchlistGroup? @relation(fields: [groupId], references: [id], onDelete: SetNull)
   listings       Listing[]
   priceCache     PriceCache?
   priceSnapshots PriceSnapshot[]
   alerts         Alert[]
 
+  @@index([userId])
+  @@index([userId, groupId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WatchlistGroup — 4ke: user-defined buckets on the Watchlist page. One
+// group per card via WatchedCard.groupId (null = Ungrouped). Unique name
+// per user so the picker doesn't show two indistinguishable choices.
+// sortOrder is a 0-based int the client can update via PATCH; default to
+// creation order.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model WatchlistGroup {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cards WatchedCard[]
+
+  @@unique([userId, name])
   @@index([userId])
 }
 
