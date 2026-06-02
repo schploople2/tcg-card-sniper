@@ -3,7 +3,17 @@
 All notable user-visible changes to TCG Card Sniper. Generated from
 conventional commits — run `pnpm changelog` to refresh from git.
 
-<!-- changelog-marker: 56ba44971d58d8536fb1b3daf90dcf0b79fbd288 -->
+<!-- changelog-marker: 40f17625e4b7160e6b9f0a9766182a344988762b -->
+
+## 2026-06-02
+
+### Added
+- **collection:** Radiant Collection tracker page (hpx)
+
+## 2026-05-26
+
+### Added
+- **ocr:** one-shot backfill script for un-OCR'd lots (3rd)
 
 ## 2026-05-26
 
