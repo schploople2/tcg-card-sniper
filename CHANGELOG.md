@@ -3,7 +3,12 @@
 All notable user-visible changes to TCG Card Sniper. Generated from
 conventional commits — run `pnpm changelog` to refresh from git.
 
-<!-- changelog-marker: c5124e3de439b720fa787009173d5072b11e190b -->
+<!-- changelog-marker: 96c528114ac2630e93a2cc1d20e793ee14ffb846 -->
+
+## 2026-06-02
+
+### Added
+- **watchlist:** user-defined groups w/ collapsible sections + per-card picker (4ke)
 
 ## 2026-06-02
 
