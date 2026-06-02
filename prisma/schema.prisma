@@ -98,6 +98,7 @@ model User {
   savedLots        SavedLot[]
   watchedSellers  WatchedSeller[]
   pushSubscriptions PushSubscription[]
+  collectionEntries CollectionEntry[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -672,6 +673,7 @@ model Card {
   syncedAt DateTime @default(now())
 
   soldComps SoldComp[]
+  collectionEntries CollectionEntry[]
 
   @@index([setId])
   @@index([number])
@@ -733,4 +735,24 @@ model TcgplayerScrapeCache {
   expiresAt    DateTime
 
   @@index([expiresAt])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CollectionEntry — hpx: per-user "I own this card" marker for the
+// /collection tracker (Radiant Collection from g1 + bw11 to start).
+// Presence of a row = collected; absence = not collected. Tap-to-toggle
+// upserts or deletes; we don't keep a soft-deleted history.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model CollectionEntry {
+  id          String   @id @default(cuid())
+  userId      String
+  cardId      String
+  collectedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card Card @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, cardId])
+  @@index([userId])
 }
