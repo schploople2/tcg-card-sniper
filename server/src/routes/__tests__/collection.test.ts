@@ -8,6 +8,7 @@ function card(over: Partial<RadiantCardRow> & { id: string; number: string; setI
     setName: over.setId === "g1" ? "Generations" : "Legendary Treasures",
     imageSmall: null,
     imageLarge: null,
+    variants: ["holofoil"],
     ...over,
   };
 }

@@ -32,6 +32,10 @@ export type RadiantCardRow = {
   setName: string;
   imageSmall: string | null;
   imageLarge: string | null;
+  /** TCGPlayer variant keys present on this card. Empty when no TCGPlayer
+   *  pricing exists. Used by the client to default a variant when the user
+   *  adds the card to their watchlist from the collection page. */
+  variants: string[];
 };
 
 /**
@@ -92,6 +96,7 @@ collectionRouter.get("/radiant", async (req, res, next) => {
           setName: true,
           imageSmall: true,
           imageLarge: true,
+          variants: true,
         },
       }),
       prisma.collectionEntry.findMany({

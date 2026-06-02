@@ -58,6 +58,10 @@ The two Radiant subsets live in a hard-coded constant in [`server/src/routes/col
 - [x] Client tests: 70/70 (was 65)
 - [ ] Hands-on browser test against Railway-deployed server: sign in → tap a few cards → reload → state persists; collected counter increments; greyscale toggles cleanly
 
+## Follow-ups
+
+- ✅ **cxu** — tap-to-open action sheet with `Mark collected` / `Add to watchlist` actions. See [cxu-collection-action-sheet.md](cxu-collection-action-sheet.md).
+
 ## Out of scope (potential follow-ups)
 
 - Hidden Fates Shiny Vault (sm115, SV1–SV94)

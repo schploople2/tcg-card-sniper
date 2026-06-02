@@ -11,6 +11,7 @@ export type RadiantCard = {
   setName: string;
   imageSmall: string | null;
   imageLarge: string | null;
+  variants: string[];
   collected: boolean;
 };
 

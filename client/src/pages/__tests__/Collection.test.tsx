@@ -4,15 +4,19 @@ import { MemoryRouter } from "react-router-dom";
 
 /**
  * hpx — Component test for the Radiant Collection page.
+ * cxu — Extended: tap opens an action sheet with toggle + add-to-watchlist.
  *
- * Mocks useRadiantCollection + useToggleCollection and verifies the
- * collected/not-collected rendering, the progress headline, and that
- * tapping a tile invokes the toggle mutation with the right cardId.
+ * Mocks the three hooks the page depends on (useRadiantCollection,
+ * useToggleCollection, useCreateCard, useCards) and verifies the page
+ * renders correctly + tapping a tile opens the action sheet + the sheet's
+ * actions invoke the right mutations.
  */
 
-const { useCollectionMock, toggleMutate } = vi.hoisted(() => ({
+const { useCollectionMock, toggleMutate, createMutate, useCardsMock } = vi.hoisted(() => ({
   useCollectionMock: vi.fn(),
   toggleMutate: vi.fn(),
+  createMutate: vi.fn(),
+  useCardsMock: vi.fn(),
 }));
 
 vi.mock("@/hooks/useRadiantCollection", async () => {
@@ -29,6 +33,11 @@ vi.mock("@/hooks/useRadiantCollection", async () => {
     }),
   };
 });
+
+vi.mock("@/hooks/useCards", () => ({
+  useCards: useCardsMock,
+  useCreateCard: () => ({ mutate: createMutate, isPending: false }),
+}));
 
 // Stub TopNav's dependencies — they pull in react-query + alert hooks that
 // would otherwise need their own mocks. The nav isn't what's under test.
@@ -70,6 +79,7 @@ function sampleResponse(): RadiantCollectionResponse {
             setName: "Generations",
             imageSmall: "https://example.com/rc1.png",
             imageLarge: null,
+            variants: ["holofoil"],
             collected: true,
           },
           {
@@ -81,6 +91,7 @@ function sampleResponse(): RadiantCollectionResponse {
             setName: "Generations",
             imageSmall: "https://example.com/rc2.png",
             imageLarge: null,
+            variants: ["holofoil", "reverseHolofoil"],
             collected: false,
           },
         ],
@@ -107,6 +118,7 @@ function renderPage() {
 describe("Collection page", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useCardsMock.mockReturnValue({ data: [] });
   });
 
   it("renders the loading skeleton state", () => {
@@ -146,12 +158,54 @@ describe("Collection page", () => {
     expect(rc2?.getAttribute("aria-pressed")).toBe("false");
   });
 
-  it("calls toggle mutation with the card id on tap", () => {
+  it("opens the action sheet on tap (does not toggle directly)", () => {
     setHook({ data: sampleResponse() });
     renderPage();
     const tiles = screen.getAllByTestId("radiant-card-tile");
     const rc2 = tiles.find((t) => t.getAttribute("aria-label")?.includes("RC2"))!;
     fireEvent.click(rc2);
+    expect(toggleMutate).not.toHaveBeenCalled();
+    expect(screen.getByTestId("collection-action-sheet")).toBeInTheDocument();
+    expect(screen.getByText("Charmeleon")).toBeInTheDocument();
+  });
+
+  it("action sheet's 'Mark collected' button invokes toggle mutation", () => {
+    setHook({ data: sampleResponse() });
+    renderPage();
+    const tiles = screen.getAllByTestId("radiant-card-tile");
+    fireEvent.click(tiles.find((t) => t.getAttribute("aria-label")?.includes("RC2"))!);
+    fireEvent.click(screen.getByTestId("action-toggle-collected"));
     expect(toggleMutate).toHaveBeenCalledWith("g1-rc2");
+  });
+
+  it("action sheet's 'Add to watchlist' button invokes createCard with the default variant", () => {
+    setHook({ data: sampleResponse() });
+    renderPage();
+    const tiles = screen.getAllByTestId("radiant-card-tile");
+    fireEvent.click(tiles.find((t) => t.getAttribute("aria-label")?.includes("RC2"))!);
+    fireEvent.click(screen.getByTestId("action-add-watchlist"));
+    expect(createMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pokemonTcgId: "g1-rc2",
+        variant: "holofoil",
+        cardName: "Charmeleon",
+        setName: "Generations",
+        cardNumber: "RC2",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("disables 'Add to watchlist' when the user already watches the card+variant", () => {
+    setHook({ data: sampleResponse() });
+    useCardsMock.mockReturnValue({
+      data: [{ pokemonTcgId: "g1-rc2", variant: "holofoil" }],
+    });
+    renderPage();
+    const tiles = screen.getAllByTestId("radiant-card-tile");
+    fireEvent.click(tiles.find((t) => t.getAttribute("aria-label")?.includes("RC2"))!);
+    const addBtn = screen.getByTestId("action-add-watchlist");
+    expect(addBtn).toBeDisabled();
+    expect(addBtn).toHaveTextContent(/Already in watchlist/i);
   });
 });

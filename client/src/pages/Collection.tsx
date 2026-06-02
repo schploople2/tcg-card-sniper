@@ -1,16 +1,60 @@
+import { useMemo, useState } from "react";
 import { Check, Sparkles } from "lucide-react";
 import { PageShell } from "@/components/layout/PageShell";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CollectionActionSheet } from "@/components/shared/CollectionActionSheet";
 import {
   useRadiantCollection,
   useToggleCollection,
   type RadiantCard,
   type RadiantSet,
 } from "@/hooks/useRadiantCollection";
+import { useCards, useCreateCard } from "@/hooks/useCards";
 
 export default function Collection() {
   const { data, isLoading, error } = useRadiantCollection();
   const toggle = useToggleCollection();
+  const createCard = useCreateCard();
+  const { data: watchedCards } = useCards();
+  const [activeCard, setActiveCard] = useState<RadiantCard | null>(null);
+
+  // Map of "<cardId>|<variant>" → true for fast already-watching lookups
+  // when the action sheet renders. cardId on a WatchedCard corresponds to
+  // the pokemontcg.io card id, same shape as RadiantCard.id (e.g. "g1-RC1").
+  const watchedIndex = useMemo(() => {
+    const set = new Set<string>();
+    if (!watchedCards) return set;
+    for (const w of watchedCards) {
+      set.add(`${w.pokemonTcgId}|${w.variant}`);
+    }
+    return set;
+  }, [watchedCards]);
+
+  function isAlreadyWatching(card: RadiantCard | null): boolean {
+    if (!card) return false;
+    const variant =
+      card.variants.includes("holofoil") ? "holofoil" : card.variants[0];
+    if (!variant) return false;
+    return watchedIndex.has(`${card.id}|${variant}`);
+  }
+
+  function handleToggleCollected(cardId: string) {
+    toggle.mutate(cardId);
+    setActiveCard(null);
+  }
+
+  function handleAddToWatchlist(card: RadiantCard, variant: string) {
+    createCard.mutate(
+      {
+        pokemonTcgId: card.id,
+        variant,
+        cardName: card.name,
+        setName: card.setName,
+        cardNumber: card.number,
+      },
+      { onSettled: () => setActiveCard(null) },
+    );
+  }
 
   return (
     <PageShell>
@@ -21,7 +65,7 @@ export default function Collection() {
             <h1 className="text-2xl font-bold tracking-tight">Radiant Collection</h1>
           </div>
           <p className="text-sm text-slate-400">
-            Tap a card to mark it as collected. Greyed-out cards aren&apos;t in your collection yet.
+            Tap a card to mark it as collected or add it to your watchlist. Greyed-out cards aren&apos;t in your collection yet.
           </p>
           {data && <ProgressBar collected={data.collected} total={data.total} />}
         </header>
@@ -51,11 +95,20 @@ export default function Collection() {
           <SetSection
             key={set.setId}
             set={set}
-            onToggle={(cardId) => toggle.mutate(cardId)}
-            pendingId={toggle.isPending ? toggle.variables : null}
+            onSelect={(card) => setActiveCard(card)}
           />
         ))}
       </div>
+
+      <CollectionActionSheet
+        card={activeCard}
+        alreadyWatching={isAlreadyWatching(activeCard)}
+        isToggling={toggle.isPending}
+        isAdding={createCard.isPending}
+        onToggleCollected={handleToggleCollected}
+        onAddToWatchlist={handleAddToWatchlist}
+        onClose={() => setActiveCard(null)}
+      />
     </PageShell>
   );
 }
@@ -90,12 +143,10 @@ function ProgressBar({ collected, total }: { collected: number; total: number })
 
 function SetSection({
   set,
-  onToggle,
-  pendingId,
+  onSelect,
 }: {
   set: RadiantSet;
-  onToggle: (cardId: string) => void;
-  pendingId: string | null;
+  onSelect: (card: RadiantCard) => void;
 }) {
   return (
     <section className="space-y-3">
@@ -107,12 +158,7 @@ function SetSection({
       </div>
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-5 md:grid-cols-6">
         {set.cards.map((card) => (
-          <CardTile
-            key={card.id}
-            card={card}
-            onToggle={onToggle}
-            pending={pendingId === card.id}
-          />
+          <CardTile key={card.id} card={card} onSelect={onSelect} />
         ))}
       </div>
     </section>
@@ -121,19 +167,17 @@ function SetSection({
 
 function CardTile({
   card,
-  onToggle,
-  pending,
+  onSelect,
 }: {
   card: RadiantCard;
-  onToggle: (cardId: string) => void;
-  pending: boolean;
+  onSelect: (card: RadiantCard) => void;
 }) {
   return (
     <button
       type="button"
-      onClick={() => onToggle(card.id)}
+      onClick={() => onSelect(card)}
       aria-pressed={card.collected}
-      aria-label={`${card.name} (${card.number}). ${card.collected ? "Collected. Tap to mark as not collected." : "Not collected. Tap to mark as collected."}`}
+      aria-label={`${card.name} (${card.number}). ${card.collected ? "Collected. Tap for options." : "Not collected. Tap for options."}`}
       data-testid="radiant-card-tile"
       data-collected={card.collected ? "true" : "false"}
       className="group relative block aspect-[5/7] w-full overflow-hidden rounded-md border border-slate-800 bg-slate-900 transition-transform active:scale-95"
@@ -146,7 +190,6 @@ function CardTile({
           className={[
             "h-full w-full object-cover transition-all duration-200",
             card.collected ? "" : "grayscale opacity-40 group-hover:opacity-60",
-            pending ? "opacity-70" : "",
           ].join(" ")}
         />
       ) : (
