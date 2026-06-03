@@ -3,7 +3,12 @@
 All notable user-visible changes to TCG Card Sniper. Generated from
 conventional commits — run `pnpm changelog` to refresh from git.
 
-<!-- changelog-marker: 96c528114ac2630e93a2cc1d20e793ee14ffb846 -->
+<!-- changelog-marker: a6674250987a95000b2b077ca0ba4fbbeccc51ee -->
+
+## 2026-06-02
+
+### Added
+- **dashboard:** filter listings by watchlist group (bk7)
 
 ## 2026-06-02
 
