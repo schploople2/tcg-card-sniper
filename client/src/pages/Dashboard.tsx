@@ -14,6 +14,7 @@ import { useCreateSavedLotSearch } from "@/hooks/useSavedLotSearches";
 import type { Lot } from "@/types";
 import { useAllListings, useRefreshAllListings } from "@/hooks/useListings";
 import { useCards } from "@/hooks/useCards";
+import { useWatchlistGroups } from "@/hooks/useWatchlistGroups";
 import { formatCurrency } from "@/lib/utils";
 import { DEAL_TIER_CONFIG, getMarketForVariant } from "@/types";
 import type { DealTier, WatchedCard } from "@/types";
@@ -32,12 +33,20 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type SortKey = "dealScore" | "totalCost" | "endTime";
 
+/** bk7 — Group filter selection. "ALL" = no filter. "UNGROUPED" = listings
+ *  whose owning watched card has no group. Any other string is a group id. */
+export type GroupFilterValue = "ALL" | "UNGROUPED" | string;
+export const GROUP_FILTER_ALL: GroupFilterValue = "ALL";
+export const GROUP_FILTER_UNGROUPED: GroupFilterValue = "UNGROUPED";
+
 /** One merged listing row including card metadata */
 type DealRow = {
   id: string;
   cardName: string;
   setName: string;
   variant: string;
+  /** Owning watched card's group id; null = Ungrouped. (bk7) */
+  groupId: string | null;
   /** Variant-derived market price from TCGPlayer; null until first fetch lands */
   targetPrice: number | null;
   title: string;
@@ -57,6 +66,19 @@ type DealRow = {
   bids: number | null;
   endTime: string | null;
 };
+
+/**
+ * bk7 — Pure helper so the filter logic is testable without mounting the
+ * Dashboard. Returns the input unchanged when value is ALL.
+ */
+export function filterRowsByGroup<R extends { groupId: string | null }>(
+  rows: R[],
+  value: GroupFilterValue,
+): R[] {
+  if (value === GROUP_FILTER_ALL) return rows;
+  if (value === GROUP_FILTER_UNGROUPED) return rows.filter((r) => r.groupId == null);
+  return rows.filter((r) => r.groupId === value);
+}
 
 // ─── Stat card ────────────────────────────────────────────────────────────────
 
@@ -142,6 +164,8 @@ export default function Dashboard() {
   const [search, setSearch] = useState("");
   const [tierFilter, setTierFilter] = useState<DealTier | "ALL">("ALL");
   const [typeFilter, setTypeFilter] = useState<"ALL" | "AUCTION" | "FIXED_PRICE">("ALL");
+  const [groupFilter, setGroupFilter] = useState<GroupFilterValue>(GROUP_FILTER_ALL);
+  const { data: groups = [] } = useWatchlistGroups();
   const [sortKey, setSortKey] = useState<SortKey>("dealScore");
   // P5: split listings into "all" vs "live auctions" tabs. The auctions tab
   // is opinionated — it always sorts by end time ascending and only shows
@@ -168,6 +192,7 @@ export default function Dashboard() {
       cardName: l.card.cardName,
       setName: l.card.setName,
       variant: l.card.variant,
+      groupId: l.card.groupId,
       targetPrice: getMarketForVariant(l.card.priceCache, l.card.variant),
       title: l.title,
       imageUrl: l.imageUrl,
@@ -210,6 +235,7 @@ export default function Dashboard() {
     }
     if (tierFilter !== "ALL") out = out.filter((r) => r.dealTier === tierFilter);
     if (typeFilter !== "ALL") out = out.filter((r) => r.listingType === typeFilter);
+    out = filterRowsByGroup(out, groupFilter);
 
     out = [...out].sort((a, b) => {
       if (sortKey === "dealScore") return b.dealScore - a.dealScore;
@@ -222,7 +248,7 @@ export default function Dashboard() {
       return 0;
     });
     return out;
-  }, [rows, search, tierFilter, typeFilter, sortKey]);
+  }, [rows, search, tierFilter, typeFilter, groupFilter, sortKey]);
 
   // P5: live-auction view. We use the new `kind` column when present (eBay's
   // precise shape) and fall back to `listingType === "AUCTION"` for any
@@ -231,7 +257,7 @@ export default function Dashboard() {
   // the next refresh cron.
   const auctionRows = useMemo(() => {
     const now = Date.now();
-    const out = rows.filter((r) => {
+    let out = rows.filter((r) => {
       const isAuction =
         r.kind === "AUCTION_ONLY" ||
         r.kind === "BIN_PLUS_AUCTION" ||
@@ -240,6 +266,10 @@ export default function Dashboard() {
       if (!r.endTime) return false;
       return new Date(r.endTime).getTime() > now;
     });
+    // bk7 — Group filter is an orthogonal "which cards do I care about"
+    // concern, so it applies to both tabs (unlike tier/type which are
+    // listing-flavor filters and only make sense on "all").
+    out = filterRowsByGroup(out, groupFilter);
     if (search) {
       const q = search.toLowerCase();
       return out
@@ -258,7 +288,7 @@ export default function Dashboard() {
       (a, b) =>
         new Date(a.endTime!).getTime() - new Date(b.endTime!).getTime()
     );
-  }, [rows, search]);
+  }, [rows, search, groupFilter]);
 
   function handleRefreshAll() {
     if (!cards) return;
@@ -382,6 +412,25 @@ export default function Dashboard() {
                 {DEAL_TIER_CONFIG[t].label}
               </SelectItem>
             ))}
+          </SelectContent>
+        </Select>
+        {/* bk7 — Group filter. Applies to both "all" and "auctions" tabs
+            since it's a card-identity concern, not listing-flavor. */}
+        <Select value={groupFilter} onValueChange={(v) => setGroupFilter(v)}>
+          <SelectTrigger
+            className="w-44 bg-slate-900 border-slate-700 text-slate-300"
+            data-testid="dashboard-group-filter"
+          >
+            <SelectValue placeholder="All groups" />
+          </SelectTrigger>
+          <SelectContent className="bg-slate-900 border-slate-700">
+            <SelectItem value={GROUP_FILTER_ALL}>All groups</SelectItem>
+            {groups.map((g) => (
+              <SelectItem key={g.id} value={g.id}>
+                {g.name}
+              </SelectItem>
+            ))}
+            <SelectItem value={GROUP_FILTER_UNGROUPED}>Ungrouped</SelectItem>
           </SelectContent>
         </Select>
         {/* These two filters only apply on the "all" tab — the auctions tab

@@ -11,6 +11,9 @@ export interface ListingCardEmbed {
   setName: string;
   cardNumber: string | null;
   variant: string;
+  /** 4ke / bk7 — WatchlistGroup id; null = "Ungrouped". Used by the
+   *  Dashboard's Group filter dropdown. */
+  groupId: string | null;
   /** Null until the first pokemontcg.io fetch lands */
   priceCache: PriceCache | null;
 }

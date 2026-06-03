@@ -47,6 +47,7 @@ listingsRouter.get("/", async (req, res, next) => {
             setName: true,
             cardNumber: true,
             variant: true,
+            groupId: true,
             priceCache: true,
           },
         },
