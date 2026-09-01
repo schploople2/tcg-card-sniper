@@ -3,7 +3,12 @@
 All notable user-visible changes to TCG Card Sniper. Generated from
 conventional commits — run `pnpm changelog` to refresh from git.
 
-<!-- changelog-marker: a6674250987a95000b2b077ca0ba4fbbeccc51ee -->
+<!-- changelog-marker: f39a136e5dc98ac837bb3bddc70ad14a7dcb2820 -->
+
+## 2026-09-01
+
+### Added
+- **portfolio:** D1 collection tracking with cost basis (eb6)
 
 ## 2026-06-02
 
