@@ -22,6 +22,11 @@ A Pokémon card deal-finder. Scores live eBay listings against TCGPlayer / Cardm
 | 📚 Bulk-rarity bucketing for binder lots | [yam](docs/features/yam-bulk-rarity-bucketing.md) |
 | 🔖 Saved Lots — pin eBay lot listings to a Saved tab | [u8y](docs/features/u8y-saved-lots.md) |
 | 🔍 In-app lightbox for lot listing photos | [n5f](docs/features/n5f-image-lightbox.md) |
+| ✨ Radiant Collection tracker (/collection page) | [hpx](docs/features/hpx-radiant-collection.md) |
+| 📋 Collection action sheet (mark collected / add to watchlist) | [cxu](docs/features/cxu-collection-action-sheet.md) |
+| 🗂️ Watchlist groups (collapsible sections + per-card picker) | [4ke](docs/features/4ke-watchlist-groups.md) |
+| 🔽 Dashboard: filter listings by watchlist group | [bk7](docs/features/bk7-dashboard-group-filter.md) |
+| 💼 Portfolio — cost-basis tracking + unrealized P&L | [eb6](docs/features/eb6-portfolio-cost-basis.md) |
 
 Running log of every user-visible change: **[CHANGELOG.md](CHANGELOG.md)** (auto-generated from conventional commits via `pnpm changelog`).
 

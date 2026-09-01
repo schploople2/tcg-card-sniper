@@ -3,6 +3,7 @@ import Dashboard from "./pages/Dashboard.tsx";
 import Watchlist from "./pages/Watchlist.tsx";
 import Settings from "./pages/Settings.tsx";
 import Collection from "./pages/Collection.tsx";
+import Portfolio from "./pages/Portfolio.tsx";
 import Login from "./pages/Login.tsx";
 
 /**
@@ -50,6 +51,14 @@ export default function App() {
         element={
           <RequireAuth>
             <Collection />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/portfolio"
+        element={
+          <RequireAuth>
+            <Portfolio />
           </RequireAuth>
         }
       />

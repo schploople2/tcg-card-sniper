@@ -100,6 +100,7 @@ model User {
   pushSubscriptions PushSubscription[]
   collectionEntries CollectionEntry[]
   watchlistGroups   WatchlistGroup[]
+  collectionItems   CollectionItem[]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -704,6 +705,7 @@ model Card {
 
   soldComps SoldComp[]
   collectionEntries CollectionEntry[]
+  collectionItems   CollectionItem[]
 
   @@index([setId])
   @@index([number])
@@ -785,4 +787,50 @@ model CollectionEntry {
 
   @@unique([userId, cardId])
   @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CollectionItem — eb6 (D1): "My cards" inventory with cost-basis / P&L.
+// Distinct from CollectionEntry (hpx — a boolean "collected" checklist
+// scoped to the Radiant subset): this tracks *what the user paid* for
+// specific pieces so the portfolio page can show unrealized P&L against
+// the live price waterfall (resolveMarketPrice's tcgplayer/cardmarket
+// tiers — see server/src/services/priceVariant.ts).
+//
+// cardId is nullable to cover sealed product (booster boxes, ETBs, ...)
+// that has no single-card catalog row; `label` carries the display name
+// in that case. Raw and graded entries always carry a cardId so pricing
+// can resolve — the create route enforces this, not the schema.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model CollectionItem {
+  id     String  @id @default(cuid())
+  userId String
+  cardId String?
+  /// Display name used when cardId is null (sealed product has no catalog
+  /// row). Ignored by the read path when cardId is set — the card's own
+  /// name is authoritative there.
+  label String?
+  /// TCGPlayer variant key ("normal", "holofoil", ...). Null for sealed
+  /// product, which isn't priced per-variant.
+  variant String?
+  /// "raw" | "graded" | "sealed" — display grouping. Validated at the route.
+  kind String @default("raw")
+  /// Grading company ("PSA", "BGS", "CGC", ...) — set only when kind = "graded".
+  gradingCompany String?
+  /// Grade string ("10", "9.5", ...) — set only when kind = "graded".
+  grade String?
+  quantity Int @default(1)
+  /// What the user paid per unit, USD. Decimal(10,2) matches WatchedCard.targetPrice.
+  acquisitionPrice Decimal  @db.Decimal(10, 2)
+  acquiredAt       DateTime @default(now())
+  notes            String?  @db.Text
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  card Card? @relation(fields: [cardId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, kind])
 }

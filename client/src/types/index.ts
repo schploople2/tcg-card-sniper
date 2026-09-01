@@ -391,3 +391,67 @@ export const DEAL_TIER_CONFIG: Record<DealTier, DealTierConfig> = {
   // users don't read it as either positive or negative signal.
   UNSCORED: { label: "— Unscored",     color: "#94a3b8", bg: "rgba(148,163,184,0.10)", border: "rgba(148,163,184,0.30)" },
 };
+
+// ─── Portfolio (eb6 — D1 collection tracking w/ cost basis) ──────────────────
+
+export type CollectionItemKind = "raw" | "graded" | "sealed";
+
+/** One row from GET /api/portfolio — a priced, P&L-annotated collection item. */
+export interface PortfolioItem {
+  id: string;
+  cardId: string | null;
+  /** Card name, or the user-entered label for sealed product with no catalog row. */
+  label: string;
+  setName: string | null;
+  number: string | null;
+  imageSmall: string | null;
+  variant: string | null;
+  kind: CollectionItemKind;
+  gradingCompany: string | null;
+  grade: string | null;
+  quantity: number;
+  acquisitionPrice: number;
+  acquiredAt: string;
+  notes: string | null;
+  totalCost: number;
+  currentMarket: number | null;
+  currentValue: number | null;
+  unrealizedPnl: number | null;
+  priceCurrency: string | null;
+  priceSource: "tcgplayer" | "cardmarket" | "none";
+}
+
+export interface PortfolioSummary {
+  count: number;
+  pricedCount: number;
+  totalCost: number;
+  totalValue: number;
+  totalPnl: number;
+}
+
+export interface PortfolioResponse {
+  items: PortfolioItem[];
+  summary: PortfolioSummary;
+}
+
+export interface CreatePortfolioItemPayload {
+  cardId?: string;
+  label?: string;
+  variant?: string;
+  kind: CollectionItemKind;
+  gradingCompany?: string;
+  grade?: string;
+  quantity: number;
+  acquisitionPrice: number;
+  acquiredAt?: string;
+  notes?: string;
+}
+
+export interface UpdatePortfolioItemPayload {
+  quantity?: number;
+  acquisitionPrice?: number;
+  acquiredAt?: string;
+  notes?: string | null;
+  gradingCompany?: string | null;
+  grade?: string | null;
+}
