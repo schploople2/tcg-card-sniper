@@ -27,6 +27,7 @@ A Pokémon card deal-finder. Scores live eBay listings against TCGPlayer / Cardm
 | 🗂️ Watchlist groups (collapsible sections + per-card picker) | [4ke](docs/features/4ke-watchlist-groups.md) |
 | 🔽 Dashboard: filter listings by watchlist group | [bk7](docs/features/bk7-dashboard-group-filter.md) |
 | 💼 Portfolio — cost-basis tracking + unrealized P&L | [eb6](docs/features/eb6-portfolio-cost-basis.md) |
+| 📦 Bulk-rarity counts surfaced in LOT_HOT / MISTITLED Discord embeds | [cg5](docs/features/cg5-discord-bulk-rarity.md) |
 
 Running log of every user-visible change: **[CHANGELOG.md](CHANGELOG.md)** (auto-generated from conventional commits via `pnpm changelog`).
 

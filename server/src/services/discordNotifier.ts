@@ -188,6 +188,11 @@ export interface LotAlertEmbedInput {
   /** Optional preview list of top card names by market value, e.g.
    *  ["Mew VMAX", "Suicune V"] — rendered in a "Top cards" field. */
   topCardNames: string[];
+  /** cg5 — A3's bulk-rarity valuation (server/src/services/bulkValuation.ts),
+   *  for the unidentified cards the vision pass bucketed by rarity but
+   *  couldn't name. Omitted or totalCards === 0 hides the field entirely —
+   *  most lots have nothing left over once named cards are accounted for. */
+  bulkValuation?: { totalCards: number; low: number; high: number };
 }
 
 /**
@@ -219,6 +224,12 @@ export function buildLotAlertEmbed(input: LotAlertEmbedInput): Record<string, un
       value: input.topCardNames.slice(0, 6).join(", ").slice(0, 1024),
     });
   }
+  if (input.bulkValuation && input.bulkValuation.totalCards > 0) {
+    fields.push({
+      name: "Unidentified bulk",
+      value: `≈ ${input.bulkValuation.totalCards} unidentified · $${input.bulkValuation.low.toFixed(0)}–$${input.bulkValuation.high.toFixed(0)}`,
+    });
+  }
   return {
     username: "TCG Card Sniper",
     embeds: [
@@ -246,6 +257,8 @@ export interface MistitledAlertEmbedInput {
   hiddenUsd: number;
   /** Top hidden cards, already sorted desc by totalValue. UI shows up to 6. */
   hidden: Array<{ name: string; quantity: number; totalValue: number }>;
+  /** cg5 — see LotAlertEmbedInput.bulkValuation. */
+  bulkValuation?: { totalCards: number; low: number; high: number };
 }
 
 /**
@@ -277,6 +290,12 @@ export function buildMistitledEmbed(input: MistitledAlertEmbedInput): Record<str
     fields.push({
       name: "Cards not mentioned in title",
       value: list.slice(0, 1024),
+    });
+  }
+  if (input.bulkValuation && input.bulkValuation.totalCards > 0) {
+    fields.push({
+      name: "Unidentified bulk",
+      value: `≈ ${input.bulkValuation.totalCards} unidentified · $${input.bulkValuation.low.toFixed(0)}–$${input.bulkValuation.high.toFixed(0)}`,
     });
   }
 

@@ -594,7 +594,7 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
     // A1 — fire LOT_HOT alerts (in-app + Discord) when the refreshed
     // valuation crosses the threshold. Fire-and-forget so user-facing
     // OCR responses aren't blocked on user/listing lookups.
-    void evaluateLotAfterOcr(req.params.ebayItemId).catch((err) =>
+    void evaluateLotAfterOcr(req.params.ebayItemId, result.bulk).catch((err) =>
       console.error(
         "[lots] evaluateLotAfterOcr failed:",
         err instanceof Error ? err.message : err
@@ -603,7 +603,7 @@ lotsRouter.post("/:ebayItemId/ocr-suggestions", async (req, res, next) => {
     // A2 — independently fire MISTITLED alerts for hidden-card-in-bulk-lot
     // signal. A lot can fire both LOT_HOT and MISTITLED; they're distinct
     // signals with distinct embeds.
-    void evaluateLotForMistitling(req.params.ebayItemId).catch((err) =>
+    void evaluateLotForMistitling(req.params.ebayItemId, result.bulk).catch((err) =>
       console.error(
         "[lots] evaluateLotForMistitling failed:",
         err instanceof Error ? err.message : err

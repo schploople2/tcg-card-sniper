@@ -183,3 +183,75 @@ describe("evaluateLotAfterOcr — fan-out dedup", () => {
     expect(postToDiscord).not.toHaveBeenCalled();
   });
 });
+
+describe("evaluateLotAfterOcr — cg5 bulk-rarity in the Discord embed", () => {
+  it("includes an 'Unidentified bulk' field when bulkCounts has cards", async () => {
+    lotFindUnique.mockResolvedValue(lotFixture());
+    savedLotSearchFindMany.mockResolvedValue([
+      { userId: "user-1", query: "big", minLowEstimate: null, maxAskingPrice: null },
+    ]);
+    userFindMany.mockResolvedValueOnce([
+      { id: "user-1", discordWebhookUrl: "https://discord.com/api/webhooks/1/abc" },
+    ]);
+    alertCreateMany.mockResolvedValue({ count: 1 });
+
+    await evaluateLotAfterOcr("ebay-1", {
+      commons: 10,
+      uncommons: 5,
+      rares: 0,
+      holos: 0,
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(postToDiscord).toHaveBeenCalledOnce();
+    const payload = postToDiscord.mock.calls[0][1] as {
+      embeds: Array<{ fields: Array<{ name: string; value: string }> }>;
+    };
+    const field = payload.embeds[0].fields.find((f) => f.name === "Unidentified bulk");
+    expect(field).toBeDefined();
+    expect(field?.value).toContain("15 unidentified");
+  });
+
+  it("omits the bulk field when bulkCounts is omitted", async () => {
+    lotFindUnique.mockResolvedValue(lotFixture());
+    savedLotSearchFindMany.mockResolvedValue([
+      { userId: "user-1", query: "big", minLowEstimate: null, maxAskingPrice: null },
+    ]);
+    userFindMany.mockResolvedValueOnce([
+      { id: "user-1", discordWebhookUrl: "https://discord.com/api/webhooks/1/abc" },
+    ]);
+    alertCreateMany.mockResolvedValue({ count: 1 });
+
+    await evaluateLotAfterOcr("ebay-1");
+    await new Promise((r) => setTimeout(r, 10));
+
+    const payload = postToDiscord.mock.calls[0][1] as {
+      embeds: Array<{ fields: Array<{ name: string; value: string }> }>;
+    };
+    expect(payload.embeds[0].fields.some((f) => f.name === "Unidentified bulk")).toBe(false);
+  });
+
+  it("omits the bulk field when every bucket is 0", async () => {
+    lotFindUnique.mockResolvedValue(lotFixture());
+    savedLotSearchFindMany.mockResolvedValue([
+      { userId: "user-1", query: "big", minLowEstimate: null, maxAskingPrice: null },
+    ]);
+    userFindMany.mockResolvedValueOnce([
+      { id: "user-1", discordWebhookUrl: "https://discord.com/api/webhooks/1/abc" },
+    ]);
+    alertCreateMany.mockResolvedValue({ count: 1 });
+
+    await evaluateLotAfterOcr("ebay-1", {
+      commons: 0,
+      uncommons: 0,
+      rares: 0,
+      holos: 0,
+    });
+    await new Promise((r) => setTimeout(r, 10));
+
+    const payload = postToDiscord.mock.calls[0][1] as {
+      embeds: Array<{ fields: Array<{ name: string; value: string }> }>;
+    };
+    expect(payload.embeds[0].fields.some((f) => f.name === "Unidentified bulk")).toBe(false);
+  });
+});

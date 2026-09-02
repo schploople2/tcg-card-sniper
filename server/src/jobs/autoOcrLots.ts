@@ -95,8 +95,8 @@ export async function runAutoOcrSweep(): Promise<SweepResult> {
       // Lot row itself — that's fine for v1; A1 fires when the user
       // re-opens the lot and sees the fresh suggestions, which is when
       // they'd want the alert anyway.
-      await evaluateLotAfterOcr(c.ebayItemId);
-      await evaluateLotForMistitling(c.ebayItemId);
+      await evaluateLotAfterOcr(c.ebayItemId, result.bulk);
+      await evaluateLotForMistitling(c.ebayItemId, result.bulk);
     } catch (err) {
       errors += 1;
       console.error(

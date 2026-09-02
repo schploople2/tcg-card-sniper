@@ -1,10 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   buildAlertEmbed,
+  buildLotAlertEmbed,
+  buildMistitledEmbed,
   buildTestEmbed,
   isValidDiscordWebhookUrl,
   postToDiscord,
   redactWebhookUrl,
+  type LotAlertEmbedInput,
+  type MistitledAlertEmbedInput,
 } from "../discordNotifier.js";
 import { AlertKind } from "@prisma/client";
 
@@ -197,6 +201,75 @@ describe("postToDiscord", () => {
       "application/json"
     );
     expect(init?.body).toBe(JSON.stringify({ content: "x" }));
+  });
+});
+
+function lotEmbedInput(over: Partial<LotAlertEmbedInput> = {}): LotAlertEmbedInput {
+  return {
+    lotTitle: "Big Pokemon lot",
+    lotUrl: "https://ebay.com/itm/1",
+    imageUrl: null,
+    askingPrice: 50,
+    lowEstimate: 200,
+    highEstimate: 400,
+    parsedCardCount: 3,
+    topCardNames: ["Charizard", "Blastoise"],
+    ...over,
+  };
+}
+
+describe("buildLotAlertEmbed", () => {
+  it("omits the bulk field when bulkValuation isn't provided", () => {
+    const body = buildLotAlertEmbed(lotEmbedInput()) as {
+      embeds: Array<{ fields: Array<{ name: string; value: string }> }>;
+    };
+    expect(body.embeds[0].fields.some((f) => f.name === "Unidentified bulk")).toBe(false);
+  });
+
+  it("omits the bulk field when totalCards is 0", () => {
+    const body = buildLotAlertEmbed(
+      lotEmbedInput({ bulkValuation: { totalCards: 0, low: 0, high: 0 } })
+    ) as { embeds: Array<{ fields: Array<{ name: string; value: string }> }> };
+    expect(body.embeds[0].fields.some((f) => f.name === "Unidentified bulk")).toBe(false);
+  });
+
+  it("renders '≈ N unidentified · $low–$high' when bulk cards were found", () => {
+    const body = buildLotAlertEmbed(
+      lotEmbedInput({ bulkValuation: { totalCards: 24, low: 3.5, high: 18 } })
+    ) as { embeds: Array<{ fields: Array<{ name: string; value: string }> }> };
+    const field = body.embeds[0].fields.find((f) => f.name === "Unidentified bulk");
+    expect(field?.value).toBe("≈ 24 unidentified · $4–$18");
+  });
+});
+
+function mistitledEmbedInput(
+  over: Partial<MistitledAlertEmbedInput> = {}
+): MistitledAlertEmbedInput {
+  return {
+    lotTitle: "Mystery lot",
+    lotUrl: "https://ebay.com/itm/2",
+    imageUrl: null,
+    askingPrice: 30,
+    hiddenUsd: 80,
+    hidden: [{ name: "Pikachu VMAX", quantity: 1, totalValue: 80 }],
+    ...over,
+  };
+}
+
+describe("buildMistitledEmbed", () => {
+  it("omits the bulk field when bulkValuation isn't provided", () => {
+    const body = buildMistitledEmbed(mistitledEmbedInput()) as {
+      embeds: Array<{ fields: Array<{ name: string; value: string }> }>;
+    };
+    expect(body.embeds[0].fields.some((f) => f.name === "Unidentified bulk")).toBe(false);
+  });
+
+  it("renders the bulk field when bulk cards were found", () => {
+    const body = buildMistitledEmbed(
+      mistitledEmbedInput({ bulkValuation: { totalCards: 10, low: 1, high: 5 } })
+    ) as { embeds: Array<{ fields: Array<{ name: string; value: string }> }> };
+    const field = body.embeds[0].fields.find((f) => f.name === "Unidentified bulk");
+    expect(field?.value).toBe("≈ 10 unidentified · $1–$5");
   });
 });
 

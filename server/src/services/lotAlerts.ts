@@ -11,6 +11,8 @@ import {
 import { matchUsersForLot } from "./savedLotSearches.js";
 import { computeMistitledScore } from "./mistitledScore.js";
 import { buildLotPushPayload, sendPushToUser } from "./pushNotifier.js";
+import { valueBulk } from "./bulkValuation.js";
+import type { BulkCounts } from "./lotVisionAi.js";
 
 /**
  * A1 — Lot-tied alerts.
@@ -48,7 +50,12 @@ export interface LotAlertEvalResult {
 }
 
 export async function evaluateLotAfterOcr(
-  ebayItemId: string
+  ebayItemId: string,
+  /** cg5 — bulk-rarity counts from this OCR pass (not persisted on the Lot
+   *  row), threaded through so the Discord embed can surface them. Callers
+   *  that don't have a fresh vision result on hand (e.g. a future re-eval
+   *  path) can omit it — the bulk field just won't render. */
+  bulkCounts?: BulkCounts
 ): Promise<LotAlertEvalResult> {
   const lot = await prisma.lot.findUnique({ where: { ebayItemId } });
   if (!lot) return { qualified: false, alertsCreated: 0 };
@@ -101,7 +108,7 @@ export async function evaluateLotAfterOcr(
 
   if (novel.length > 0) {
     const userIds = novel.map((n) => n.userId);
-    void fanOutDiscord(lot, userIds);
+    void fanOutDiscord(lot, userIds, bulkCounts);
     void fanOutPushLotHot(lot, userIds);
   }
 
@@ -113,7 +120,11 @@ export async function evaluateLotAfterOcr(
  * from the lot row, and POST. Best-effort — errors logged, never
  * propagated. Mirrors fanOutDiscord in services/alerts.ts.
  */
-async function fanOutDiscord(lot: Lot, userIds: string[]): Promise<void> {
+async function fanOutDiscord(
+  lot: Lot,
+  userIds: string[],
+  bulkCounts?: BulkCounts
+): Promise<void> {
   try {
     const users = await prisma.user.findMany({
       where: { id: { in: userIds } },
@@ -148,6 +159,8 @@ async function fanOutDiscord(lot: Lot, userIds: string[]): Promise<void> {
       .filter((r): r is { name: string; maxMarket: number } => !!r.name)
       .sort((a, b) => b.maxMarket - a.maxMarket);
 
+    const bulkValuation = bulkCounts ? valueBulk(bulkCounts) : null;
+
     const embedInput: LotAlertEmbedInput = {
       lotTitle: lot.title,
       lotUrl: lot.ebayUrl,
@@ -157,6 +170,7 @@ async function fanOutDiscord(lot: Lot, userIds: string[]): Promise<void> {
       highEstimate: Number(lot.highEstimate),
       parsedCardCount: parsedCards.length,
       topCardNames: ranked.slice(0, 6).map((r) => r.name),
+      bulkValuation: bulkValuation ?? undefined,
     };
     const payload = buildLotAlertEmbed(embedInput);
 
@@ -200,7 +214,9 @@ export interface MistitledEvalResult {
  * Doesn't block on Discord fan-out — caller can `void`-prefix.
  */
 export async function evaluateLotForMistitling(
-  ebayItemId: string
+  ebayItemId: string,
+  /** cg5 — see evaluateLotAfterOcr's bulkCounts param. */
+  bulkCounts?: BulkCounts
 ): Promise<MistitledEvalResult> {
   const lot = await prisma.lot.findUnique({ where: { ebayItemId } });
   if (!lot) return { qualified: false, hiddenUsd: 0, alertsCreated: 0 };
@@ -246,7 +262,7 @@ export async function evaluateLotForMistitling(
 
   if (novel.length > 0) {
     const userIds = novel.map((n) => n.userId);
-    void fanOutMistitledDiscord(lot, score, userIds);
+    void fanOutMistitledDiscord(lot, score, userIds, bulkCounts);
     void fanOutPushMistitled(lot, score.hiddenUsd, userIds);
   }
 
@@ -260,13 +276,15 @@ export async function evaluateLotForMistitling(
 async function fanOutMistitledDiscord(
   lot: Lot,
   score: ReturnType<typeof computeMistitledScore>,
-  userIds: string[]
+  userIds: string[],
+  bulkCounts?: BulkCounts
 ): Promise<void> {
   try {
     const users = await prisma.user.findMany({
       where: { id: { in: userIds } },
       select: { id: true, discordWebhookUrl: true },
     });
+    const bulkValuation = bulkCounts ? valueBulk(bulkCounts) : null;
     const embedInput: MistitledAlertEmbedInput = {
       lotTitle: lot.title,
       lotUrl: lot.ebayUrl,
@@ -278,6 +296,7 @@ async function fanOutMistitledDiscord(
         quantity: h.quantity,
         totalValue: h.totalValue,
       })),
+      bulkValuation: bulkValuation ?? undefined,
     };
     const payload = buildMistitledEmbed(embedInput);
 
