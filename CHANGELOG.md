@@ -3,7 +3,12 @@
 All notable user-visible changes to TCG Card Sniper. Generated from
 conventional commits — run `pnpm changelog` to refresh from git.
 
-<!-- changelog-marker: f39a136e5dc98ac837bb3bddc70ad14a7dcb2820 -->
+<!-- changelog-marker: 220d3875a2ae1bdf6d139932c061d73bde854c2d -->
+
+## 2026-09-02
+
+### Added
+- **lots:** surface A3 bulk-rarity counts in Discord embeds (cg5)
 
 ## 2026-09-01
 
